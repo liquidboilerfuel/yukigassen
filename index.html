@@ -186,8 +186,9 @@ const SPEED = 230;      // 移動速度 px/s
 const BSPEED = 470;     // 雪玉速度
 const BRANGE = 540;     // 雪玉の飛距離
 const DEATH_R = 8.5;    // これ以下に縮んだら倒される
-const SHRINK = 0.5;     // 被弾時に縮む量 = 当たった弾の半径 × これ
+const SHRINK = 0.5;     // 被弾ダメージ = 弾の半径 × これ × √(自分の半径/PR) ※でかいほど痛い
 const SPLIT_R = 9;      // この半径以上の雪玉は着弾時に3方向に分裂
+const THROW_COST = 0.13;// 投げると弾の半径×これだけ自分が縮む(雪玉は自分の体から作る)
 const COOLDOWN = 420;   // 投擲間隔 ms
 const INV_MS = 3000;    // 参加直後の無敵時間 ms(投げたら即終了)
 const SENDRATE = 50;    // 状態送信間隔 ms
@@ -577,6 +578,8 @@ function throwBall() {
   const bx = me.x + Math.cos(me.a) * (me.r + ballR + 2);
   const by = me.y + Math.sin(me.a) * (me.r + ballR + 2);
   balls.set(bid, {owner:me.id, x:bx, y:by, vx, vy, r:ballR, dist:0});
+  // 雪玉は自分の体から削って作る(ただし投げ死にはしない)
+  me.r = Math.max(DEATH_R + 0.7, me.r - ballR * THROW_COST);
   pSnow(bx, by, 4, 70, 1.6); // 投げた瞬間の雪煙
   emit({t:'throw', id:me.id, bid, x:Math.round(bx), y:Math.round(by), vx:Math.round(vx), vy:Math.round(vy), r:+ballR.toFixed(1)});
 }
@@ -773,6 +776,8 @@ function updateCpu(dt) {
     const ballR = BR * bot.r / PR;
     const bx = bot.x + Math.cos(bot.a)*(bot.r+ballR+2), by = bot.y + Math.sin(bot.a)*(bot.r+ballR+2);
     balls.set(bid, {owner:CPU_ID, x:bx, y:by, vx:Math.cos(bot.a)*BSPEED, vy:Math.sin(bot.a)*BSPEED, r:ballR, dist:0});
+    bot.r = Math.max(DEATH_R + 0.7, bot.r - ballR * THROW_COST); // CPUも体から雪を削る
+    pSnow(bx, by, 4, 70, 1.6);
   }
   // 4) 自分の雪玉がCPUに当たったか
   balls.forEach((b, bid) => {
@@ -781,7 +786,7 @@ function updateCpu(dt) {
     if ((b.grace || 0) <= 0 && (b.x-bot.x)**2 + (b.y-bot.y)**2 < (bot.r+b.r)**2) {
       explodeBall(bid, b, 'player');
       balls.delete(bid);
-      bot.r -= b.r * SHRINK; // CPUも当たったぶん縮む
+      bot.r -= b.r * SHRINK * Math.sqrt(bot.r / PR); // CPUもでかいほど大きく削れる
       if (bot.r <= DEATH_R) {
         deathBurst(bot.x, bot.y, bot.dr || bot.r, bot.color);
         addShake(7);
@@ -856,7 +861,7 @@ function update(now) {
     if (b.owner !== me.id && (b.grace || 0) <= 0 && now >= (me.invUntil || 0) && (b.x-me.x)**2 + (b.y-me.y)**2 < (me.r+b.r)**2) {
       explodeBall(bid, b, 'player');
       dead.push(bid);
-      me.r -= b.r * SHRINK; // 当たったぶんだけ縮む
+      me.r -= b.r * SHRINK * Math.sqrt(me.r / PR); // でかいほど大きく削れる
       addShake(4 + b.r * 0.4);
       if (me.r > DEATH_R) {
         emit({t:'hit', id:me.id, bid, r:+me.r.toFixed(1), x:Math.round(b.x), y:Math.round(b.y)});
