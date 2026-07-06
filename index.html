@@ -111,7 +111,7 @@
     display:flex; gap:12px; align-items:center;
     transform:rotate(-1deg);
   }
-  #roomBadge b { color:var(--accent); letter-spacing:4px; font-size:21px; }
+  #roomBadge b { color:var(--accent); letter-spacing:4px; font-size:21px; cursor:pointer; user-select:none; }
   #copyBtn { padding:3px 12px; font-size:13px; }
   #scores { display:flex; gap:9px; flex-wrap:wrap; }
   .score {
@@ -149,7 +149,7 @@
 <div id="subtitle">〜 らくがき帳のなかで雪合戦 〜</div>
 
 <div id="hud">
-  <div id="roomBadge" class="sketchy">部屋コード <b id="codeLabel">----</b>
+  <div id="roomBadge" class="sketchy">部屋コード <b id="codeLabel" title="タップで表示/非表示">----</b>
     <button class="btn" id="copyBtn">招待リンクをコピー</button>
   </div>
   <div id="scores"></div>
@@ -407,6 +407,8 @@ function createRoom() {
   peer.on('connection', conn => {
     conn.on('data', msg => {
       if (msg.t === 'hello') {
+        // 1人プレイ(CPU戦)→ 複数人になる瞬間だけスコアをリセット
+        if (humanCount() === 0) { deactivateCpu(); me.score = 0; }
         conn.playerId = msg.id;
         conns.set(msg.id, conn);
         handle(msg);
@@ -424,6 +426,7 @@ function createRoom() {
         const m = {t:'leave', id:conn.playerId};
         handle(m);
         relayAll(m, null);
+        if (humanCount() === 0) activateCpu(); // また1人になったらCPU復帰
       }
     });
   });
@@ -468,12 +471,18 @@ function startGame() {
   playing = true;
   $('lobby').style.display = 'none';
   $('hud').style.display = 'flex';
-  $('codeLabel').textContent = roomCode;
+  renderCode();
   updateScores();
+  if (isHost && humanCount() === 0) activateCpu();
   setInterval(() => {
     if (playing) emit({t:'state', id:me.id, x:Math.round(me.x), y:Math.round(me.y), a:+me.a.toFixed(2)});
   }, SENDRATE);
 }
+
+// 部屋コードの表示/非表示(配信用)
+let codeHidden = false;
+function renderCode() { $('codeLabel').textContent = codeHidden ? '••••' : roomCode; }
+$('codeLabel').onclick = () => { codeHidden = !codeHidden; renderCode(); };
 
 $('copyBtn').onclick = () => {
   const url = location.origin + location.pathname + '?room=' + roomCode;
@@ -553,6 +562,130 @@ function throwBall() {
   emit({t:'throw', id:me.id, bid, x:Math.round(bx), y:Math.round(by), vx:Math.round(vx), vy:Math.round(vy)});
 }
 
+// ================== 最強CPU(1人のとき専用・ローカル動作) ==================
+const CPU_ID = 'cpu';
+const CPU_COOLDOWN = COOLDOWN; // 連射速度もプレイヤーと同じ(身体能力は互角)
+let cpuActive = false, cpuCd = 0, cpuSeq = 0;
+let strafeDir = 1, strafeTimer = 0;
+let meVX = 0, meVY = 0;
+
+function humanCount() { return players.size - (players.has(CPU_ID) ? 1 : 0); }
+
+function activateCpu() {
+  if (cpuActive || !playing) return;
+  const sp = randomSpawn();
+  players.set(CPU_ID, {id:CPU_ID, cpu:true, name:'CPU', color:COLORS[Math.floor(Math.random()*COLORS.length)],
+                       x:sp.x, y:sp.y, tx:sp.x, ty:sp.y, a:0, hp:MAXHP, score:0});
+  me.score = 0;
+  cpuActive = true; cpuCd = 1000;
+  toast('CPU があそびにきた!');
+  updateScores();
+}
+function deactivateCpu() {
+  if (!cpuActive) return;
+  players.delete(CPU_ID);
+  [...balls.keys()].forEach(bid => { if (balls.get(bid).owner === CPU_ID) balls.delete(bid); });
+  cpuActive = false;
+  updateScores();
+}
+// 偏差撃ち: 相手の移動を先読みして命中する時刻を解く
+function leadSolve(dx, dy, vx, vy, s) {
+  const a = vx*vx + vy*vy - s*s;
+  const b = 2 * (dx*vx + dy*vy);
+  const c = dx*dx + dy*dy;
+  if (Math.abs(a) < 1e-6) return b !== 0 && -c/b > 0 ? -c/b : null;
+  const disc = b*b - 4*a*c;
+  if (disc < 0) return null;
+  const r = Math.sqrt(disc);
+  const t1 = (-b - r) / (2*a), t2 = (-b + r) / (2*a);
+  if (t1 > 0 && t2 > 0) return Math.min(t1, t2);
+  if (t1 > 0) return t1;
+  if (t2 > 0) return t2;
+  return null;
+}
+// 射線が障害物で通っているか
+function losClear(x1, y1, x2, y2) {
+  const len = Math.hypot(x2-x1, y2-y1);
+  const n = Math.max(2, Math.ceil(len / 12));
+  for (let i = 1; i < n; i++) {
+    const t = i / n;
+    if (collideObst(x1+(x2-x1)*t, y1+(y2-y1)*t, BR)) return false;
+  }
+  return true;
+}
+function updateCpu(dt) {
+  const bot = players.get(CPU_ID);
+  if (!bot) return;
+
+  // 1) 飛んでくる雪玉を予測してかわす
+  let mvx = 0, mvy = 0, dodging = false;
+  balls.forEach(b => {
+    if (b.owner === CPU_ID) return;
+    const bv = Math.hypot(b.vx, b.vy);
+    if (!bv) return;
+    const t = ((bot.x-b.x)*b.vx + (bot.y-b.y)*b.vy) / (bv*bv);
+    if (t > 0 && t < 0.7) {
+      const cx = b.x + b.vx*t, cy = b.y + b.vy*t;
+      if (Math.hypot(bot.x-cx, bot.y-cy) < 48) {
+        const px = -b.vy/bv, py = b.vx/bv;
+        const side = ((bot.x-b.x)*px + (bot.y-b.y)*py) >= 0 ? 1 : -1;
+        mvx += px*side; mvy += py*side; dodging = true;
+      }
+    }
+  });
+  // 2) かわす必要がなければ距離を保って回り込む
+  if (!dodging) {
+    const dx = me.x-bot.x, dy = me.y-bot.y, d = Math.hypot(dx, dy) || 1;
+    strafeTimer -= dt;
+    if (strafeTimer <= 0) { strafeTimer = 0.8 + Math.random()*1.2; if (Math.random() < 0.5) strafeDir *= -1; }
+    let ax = 0, ay = 0;
+    if (d > 300) { ax += dx/d; ay += dy/d; }
+    else if (d < 170) { ax -= dx/d; ay -= dy/d; }
+    ax += -dy/d * strafeDir * 0.9;
+    ay +=  dx/d * strafeDir * 0.9;
+    const al = Math.hypot(ax, ay) || 1;
+    mvx = ax/al; mvy = ay/al;
+  }
+  const nl = Math.hypot(mvx, mvy);
+  if (nl) {
+    mvx /= nl; mvy /= nl;
+    let nx = bot.x + mvx * SPEED * dt;
+    let ny = bot.y + mvy * SPEED * dt;
+    nx = Math.max(PR, Math.min(W-PR, nx));
+    ny = Math.max(PR, Math.min(H-PR, ny));
+    if (!collideObst(nx, bot.y, PR)) bot.x = nx;
+    if (!collideObst(bot.x, ny, PR)) bot.y = ny;
+    bot.tx = bot.x; bot.ty = bot.y;
+  }
+  // 3) 完璧な偏差撃ち
+  const sol = leadSolve(me.x-bot.x, me.y-bot.y, meVX, meVY, BSPEED);
+  const tx = sol !== null ? me.x + meVX*sol : me.x;
+  const ty = sol !== null ? me.y + meVY*sol : me.y;
+  bot.a = Math.atan2(ty-bot.y, tx-bot.x);
+  cpuCd -= dt*1000;
+  if (cpuCd <= 0 && losClear(bot.x, bot.y, tx, ty)) {
+    cpuCd = CPU_COOLDOWN;
+    const bid = CPU_ID + '-' + (cpuSeq++);
+    const bx = bot.x + Math.cos(bot.a)*(PR+BR+2), by = bot.y + Math.sin(bot.a)*(PR+BR+2);
+    balls.set(bid, {owner:CPU_ID, x:bx, y:by, vx:Math.cos(bot.a)*BSPEED, vy:Math.sin(bot.a)*BSPEED, dist:0});
+  }
+  // 4) 自分の雪玉がCPUに当たったか
+  balls.forEach((b, bid) => {
+    if (b.owner === CPU_ID) return;
+    if ((b.x-bot.x)**2 + (b.y-bot.y)**2 < (PR+BR)**2) {
+      balls.delete(bid);
+      bot.hp--;
+      if (bot.hp <= 0) {
+        const sp = randomSpawn();
+        bot.x = bot.tx = sp.x; bot.y = bot.ty = sp.y; bot.hp = MAXHP;
+        me.score++;
+        toast('❄ CPU をたおした!');
+        updateScores();
+      }
+    }
+  });
+}
+
 // ================== 更新 ==================
 let lastT = performance.now();
 function update(now) {
@@ -566,6 +699,7 @@ function update(now) {
   });
 
   if (!playing) return;
+  const pmx = me.x, pmy = me.y;
 
   let mvx = 0, mvy = 0;
   let dx = 0, dy = 0;
@@ -587,8 +721,11 @@ function update(now) {
     if (!collideObst(me.x, ny, PR)) me.y = ny;
   }
   me.a = Math.atan2(mouseY - me.y, mouseX - me.x);
+  if (dt > 0.001) { meVX = (me.x - pmx) / dt; meVY = (me.y - pmy) / dt; }
+  if (cpuActive) updateCpu(dt);
 
   players.forEach(p => {
+    if (p.cpu) return; // CPUはローカル制御なので補間しない
     p.x += (p.tx - p.x) * 0.35;
     p.y += (p.ty - p.y) * 0.35;
   });
