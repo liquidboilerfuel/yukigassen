@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ゆきがっせん.io — オンライン雪合戦</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Yomogi&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --ink:#3d405b;
+    --paper:#faf4e4;
+    --paper2:#fffaf0;
+    --pencil:#89b8d8;
+    --accent:#e07a5f;
+  }
+  body {
+    background:#f4ecd8;
+    background-image:
+      radial-gradient(rgba(61,64,91,.045) 1px, transparent 1.4px),
+      radial-gradient(rgba(61,64,91,.03) 1px, transparent 1.4px);
+    background-size:26px 26px, 17px 17px;
+    background-position:0 0, 9px 13px;
+    color:var(--ink);
+    font-family:'Yomogi', "Hiragino Kaku Gothic ProN", sans-serif;
+    display:flex; flex-direction:column; align-items:center; min-height:100vh;
+  }
+  h1 {
+    font-size:30px; margin:16px 0 2px; letter-spacing:4px;
+    transform:rotate(-1.2deg); position:relative;
+  }
+  h1 .snow { color:var(--pencil); }
+  h1::after {
+    content:""; position:absolute; left:2%; right:-4%; bottom:-4px; height:7px;
+    background:var(--accent); opacity:.55;
+    border-radius:60% 40% 55% 45% / 70% 60% 40% 30%;
+    transform:rotate(.6deg);
+  }
+  #subtitle { font-size:13px; opacity:.6; margin-bottom:10px; transform:rotate(-.5deg); }
+
+  #wrap { position:relative; width:min(96vw, 900px); filter:drop-shadow(4px 6px 0 rgba(61,64,91,.14)); }
+  canvas {
+    width:100%; display:block; cursor:crosshair;
+    background:var(--paper);
+    border:3px solid var(--ink);
+    border-radius:255px 18px 225px 18px / 18px 225px 18px 255px;
+  }
+
+  /* ====== 手書きパーツ共通 ====== */
+  .sketchy {
+    border:2.5px solid var(--ink);
+    border-radius:255px 15px 225px 15px / 15px 225px 15px 255px;
+    background:var(--paper2);
+    box-shadow:2px 3px 0 rgba(61,64,91,.18);
+  }
+  .btn {
+    padding:9px 24px; cursor:pointer; font-family:'Yomogi';
+    font-size:17px; font-weight:bold; color:var(--ink);
+    border:2.5px solid var(--ink); background:#fff;
+    border-radius:255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow:2px 3px 0 rgba(61,64,91,.25);
+    transition:transform .1s;
+  }
+  .btn:hover { transform:rotate(-1.5deg) scale(1.06); background:#fdf1d6; }
+  .btn:active { transform:translate(2px,3px); box-shadow:none; }
+  .btn.green { background:#dcefdd; }
+  .btn.green:hover { background:#c8e6ca; }
+
+  /* ====== ロビー(メモ用紙) ====== */
+  #lobby {
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #lobbyCard {
+    position:relative; transform:rotate(-1.3deg);
+    padding:34px 44px 28px;
+    display:flex; flex-direction:column; align-items:center; gap:13px;
+    background:var(--paper2);
+    border:2.5px solid var(--ink);
+    border-radius:255px 25px 225px 25px / 25px 225px 25px 255px;
+    box-shadow:3px 5px 0 rgba(61,64,91,.18);
+  }
+  #lobbyCard::before {           /* マスキングテープ */
+    content:""; position:absolute; top:-14px; left:50%;
+    width:110px; height:28px; transform:translateX(-50%) rotate(2deg);
+    background:rgba(137,184,216,.5);
+    border-left:2px dashed rgba(255,255,255,.7);
+    border-right:2px dashed rgba(255,255,255,.7);
+  }
+  #lobbyTitle { font-size:24px; letter-spacing:2px; }
+  #lobby input {
+    padding:8px 14px; font-size:17px; font-family:'Yomogi';
+    color:var(--ink); background:transparent; text-align:center; width:230px;
+    border:none; border-bottom:2.5px dashed var(--ink); outline:none;
+  }
+  #lobby input::placeholder { color:#b4ac97; }
+  .row { display:flex; gap:10px; align-items:center; }
+  #status { color:var(--accent); font-size:14px; min-height:20px; transform:rotate(-.6deg); }
+  .hint { color:#a39a83; font-size:13px; }
+
+  /* ====== HUD ====== */
+  #hud {
+    display:none; width:min(96vw, 900px); margin:10px 0 8px; gap:10px;
+    justify-content:space-between; align-items:flex-start; flex-wrap:wrap;
+  }
+  #roomBadge {
+    padding:7px 14px; font-size:15px;
+    display:flex; gap:12px; align-items:center;
+    transform:rotate(-1deg);
+  }
+  #roomBadge b { color:var(--accent); letter-spacing:4px; font-size:21px; }
+  #copyBtn { padding:3px 12px; font-size:13px; }
+  #scores { display:flex; gap:9px; flex-wrap:wrap; }
+  .score {
+    padding:5px 12px; font-size:14px;
+    display:flex; gap:7px; align-items:center;
+  }
+  .score:nth-child(odd)  { transform:rotate(1.2deg); }
+  .score:nth-child(even) { transform:rotate(-1.4deg); }
+  .dot {
+    width:13px; height:13px; display:inline-block;
+    border:1.5px solid var(--ink);
+    border-radius:55% 45% 60% 40% / 45% 60% 40% 55%;
+  }
+
+  /* ====== トースト ====== */
+  #toasts {
+    position:absolute; top:14px; left:50%; transform:translateX(-50%);
+    display:flex; flex-direction:column; gap:6px; pointer-events:none; align-items:center;
+  }
+  .toast {
+    padding:4px 16px; font-size:14px;
+    background:var(--paper2);
+    border:2px solid var(--ink);
+    border-radius:255px 12px 225px 12px / 12px 225px 12px 255px;
+    box-shadow:2px 2px 0 rgba(61,64,91,.15);
+    transform:rotate(-.8deg);
+    animation:fade 3s forwards;
+  }
+  @keyframes fade { 0%{opacity:0; transform:translateY(-6px) rotate(-.8deg)} 10%{opacity:1; transform:translateY(0) rotate(-.8deg)} 80%{opacity:1} 100%{opacity:0} }
+  #controls { color:#a39a83; font-size:13px; margin:10px 0 18px; transform:rotate(-.4deg); }
+</style>
+</head>
+<body>
+<h1>ゆきがっせん<span class="snow">.io</span> ❄</h1>
+<div id="subtitle">〜 らくがき帳のなかで雪合戦 〜</div>
+
+<div id="hud">
+  <div id="roomBadge" class="sketchy">部屋コード <b id="codeLabel">----</b>
+    <button class="btn" id="copyBtn">招待リンクをコピー</button>
+  </div>
+  <div id="scores"></div>
+</div>
+
+<div id="wrap">
+  <canvas id="cv" width="900" height="520"></canvas>
+  <div id="toasts"></div>
+  <div id="lobby">
+    <div id="lobbyCard">
+      <div id="lobbyTitle">❄ オンライン雪合戦 ❄</div>
+      <input id="nameIn" placeholder="ニックネーム" maxlength="10">
+      <button class="btn green" id="createBtn">部屋を作る</button>
+      <div class="hint">— または —</div>
+      <div class="row">
+        <input id="codeIn" placeholder="部屋コード" maxlength="4" style="width:130px">
+        <button class="btn" id="joinBtn">参加</button>
+      </div>
+      <div id="status"></div>
+      <div class="hint">サーバー不要のP2P通信で対戦(2〜6人推奨)</div>
+    </div>
+  </div>
+</div>
+<div id="controls">移動: WASD / 矢印キー ・ 雪玉: クリック / スペース ・ 3発あたったらリスポーン!</div>
+
+<script>
+'use strict';
+// ================== 定数 ==================
+const W = 900, H = 520;
+const PR = 15;          // プレイヤー半径
+const BR = 6;           // 雪玉半径
+const SPEED = 230;      // 移動速度 px/s
+const BSPEED = 470;     // 雪玉速度
+const BRANGE = 540;     // 雪玉の飛距離
+const MAXHP = 3;
+const COOLDOWN = 420;   // 投擲間隔 ms
+const SENDRATE = 50;    // 状態送信間隔 ms
+const PREFIX = 'yukigassen-io-';
+const INK = '#3d405b';
+const PENCIL = '#89b8d8';
+const COLORS = ['#e07a5f','#e8b64c','#81b29a','#6a8ec9','#b0729f','#e78ea5','#ec9f4e','#5fb3a9'];
+// 障害物: type 'tree' は木のらくがき、'wall' は雪のかべ
+const OBST = [
+  {x:150, y:90,  w:50,  h:150, type:'wall'},
+  {x:700, y:280, w:50,  h:150, type:'wall'},
+  {x:410, y:220, w:80,  h:80,  type:'tree'},
+  {x:240, y:390, w:130, h:40,  type:'wall'},
+  {x:530, y:90,  w:130, h:40,  type:'wall'},
+];
+
+// ================== 状態 ==================
+let peer = null, isHost = false, hostConn = null;
+const conns = new Map();      // ホスト用: playerId -> DataConnection
+const players = new Map();    // リモート: id -> {name,color,x,y,tx,ty,a,hp,score}
+let me = null;                // 自分
+const balls = new Map();      // bid -> {owner,x,y,vx,vy,dist}
+let roomCode = '', playing = false;
+let lastThrow = 0, ballSeq = 0;
+const keys = new Set();
+let mouseX = W/2, mouseY = H/2;
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+
+// ================== 手書き風描画エンジン ==================
+// 「線がプルプル揺れる」ボイリング効果: 一定間隔でシードを進める
+let wobbleTick = 0;
+setInterval(() => wobbleTick++, 140);
+
+function srand(seed) {
+  let t = seed >>> 0;
+  return function() {
+    t += 0x6D2B79F5;
+    let r = Math.imul(t ^ t >>> 15, 1 | t);
+    r ^= r + Math.imul(r ^ r >>> 7, 61 | r);
+    return ((r ^ r >>> 14) >>> 0) / 4294967296;
+  };
+}
+function hashStr(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function seedOf(id) { return (hashStr(id) + wobbleTick * 7919) >>> 0; }
+
+// 揺れる円
+function wobblyCirclePath(cx, cy, r, seed, mag = 0.09) {
+  const rnd = srand(seed);
+  const n = Math.max(8, Math.round(r * 0.8));
+  const rads = [];
+  for (let i = 0; i < n; i++) rads.push(r * (1 + (rnd() - 0.5) * 2 * mag));
+  ctx.beginPath();
+  for (let i = 0; i <= n; i++) {
+    const a = (i % n) / n * Math.PI * 2;
+    const rr = rads[i % n];
+    const px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+// 揺れる線
+function wobblyLine(x1, y1, x2, y2, seed, mag = 1.6) {
+  const rnd = srand(seed);
+  const len = Math.hypot(x2 - x1, y2 - y1);
+  const n = Math.max(2, Math.round(len / 14));
+  ctx.beginPath();
+  ctx.moveTo(x1 + (rnd()-0.5)*mag, y1 + (rnd()-0.5)*mag);
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    ctx.lineTo(
+      x1 + (x2-x1)*t + (i===n ? 0 : (rnd()-0.5)*2*mag),
+      y1 + (y2-y1)*t + (i===n ? 0 : (rnd()-0.5)*2*mag)
+    );
+  }
+}
+// 揺れる長方形(角丸っぽく手描き)
+function wobblyRectPath(x, y, w, h, seed, mag = 2.2) {
+  const rnd = srand(seed);
+  const pts = [];
+  const per = [[x,y,x+w,y],[x+w,y,x+w,y+h],[x+w,y+h,x,y+h],[x,y+h,x,y]];
+  per.forEach(([ax,ay,bx,by]) => {
+    const len = Math.hypot(bx-ax, by-ay);
+    const n = Math.max(2, Math.round(len / 16));
+    for (let i = 0; i < n; i++) {
+      const t = i / n;
+      pts.push([ax + (bx-ax)*t + (rnd()-0.5)*2*mag, ay + (by-ay)*t + (rnd()-0.5)*2*mag]);
+    }
+  });
+  ctx.beginPath();
+  pts.forEach(([px,py], i) => i === 0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py));
+  ctx.closePath();
+}
+// スケッチ風ストローク: 2回なぞって鉛筆の重ね描き感
+function sketchStroke(pathFn, color = INK, width = 2.2) {
+  const base = ctx.globalAlpha;
+  ctx.strokeStyle = color;
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.globalAlpha = base * 0.9; ctx.lineWidth = width;
+  pathFn(0); ctx.stroke();
+  ctx.globalAlpha = base * 0.35; ctx.lineWidth = width * 0.8;
+  pathFn(31337); ctx.stroke();
+  ctx.globalAlpha = base;
+}
+
+// ================== ユーティリティ ==================
+function genCode() {
+  const cs = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i=0;i<4;i++) s += cs[Math.floor(Math.random()*cs.length)];
+  return s;
+}
+function status(t) { $('status').textContent = t; }
+function toast(t) {
+  const d = document.createElement('div');
+  d.className = 'toast'; d.textContent = t;
+  $('toasts').appendChild(d);
+  setTimeout(() => d.remove(), 3000);
+}
+function inRect(px, py, r, rc) {
+  const cx = Math.max(rc.x, Math.min(px, rc.x+rc.w));
+  const cy = Math.max(rc.y, Math.min(py, rc.y+rc.h));
+  return (px-cx)**2 + (py-cy)**2 < r*r;
+}
+function collideObst(px, py, r) { return OBST.some(o => inRect(px,py,r,o)); }
+function randomSpawn() {
+  for (let i=0;i<50;i++) {
+    const x = 40+Math.random()*(W-80), y = 40+Math.random()*(H-80);
+    if (!collideObst(x,y,PR+6)) return {x,y};
+  }
+  return {x:W/2, y:40};
+}
+function makeMe(id, name) {
+  const sp = randomSpawn();
+  return { id, name, color: COLORS[Math.floor(Math.random()*COLORS.length)],
+           x:sp.x, y:sp.y, a:0, hp:MAXHP, score:0 };
+}
+function snapshot() {
+  const arr = [{...me}];
+  players.forEach(p => arr.push({id:p.id,name:p.name,color:p.color,x:p.x,y:p.y,a:p.a,hp:p.hp,score:p.score}));
+  return arr;
+}
+function addPlayer(p) {
+  if (p.id === me.id || players.has(p.id)) return;
+  players.set(p.id, {...p, tx:p.x, ty:p.y});
+}
+
+// ================== 通信 ==================
+function emit(msg) {
+  if (isHost) relayAll(msg, null);
+  else if (hostConn && hostConn.open) hostConn.send(msg);
+}
+function relayAll(msg, exceptConn) {
+  conns.forEach(c => { if (c !== exceptConn && c.open) c.send(msg); });
+}
+
+function handle(msg) {
+  switch (msg.t) {
+    case 'hello': {
+      addPlayer(msg.p);
+      toast(`${msg.p.name} があそびにきた!`);
+      break;
+    }
+    case 'welcome': {
+      msg.players.forEach(p => addPlayer(p));
+      startGame();
+      break;
+    }
+    case 'state': {
+      const p = players.get(msg.id);
+      if (p) { p.tx = msg.x; p.ty = msg.y; p.a = msg.a; }
+      break;
+    }
+    case 'throw': {
+      balls.set(msg.bid, {owner:msg.id, x:msg.x, y:msg.y, vx:msg.vx, vy:msg.vy, dist:0});
+      break;
+    }
+    case 'hit': {
+      balls.delete(msg.bid);
+      const v = players.get(msg.id);
+      if (v) v.hp = msg.hp;
+      break;
+    }
+    case 'die': {
+      const v = players.get(msg.id);
+      if (v) { v.hp = MAXHP; v.x = v.tx = msg.x; v.y = v.ty = msg.y; }
+      const killer = (msg.by === me.id) ? me : players.get(msg.by);
+      if (killer) killer.score++;
+      const vn = v ? v.name : '?', kn = killer ? killer.name : '?';
+      toast(`❄ ${kn} が ${vn} をたおした!`);
+      updateScores();
+      break;
+    }
+    case 'leave': {
+      const p = players.get(msg.id);
+      if (p) toast(`${p.name} がかえっちゃった…`);
+      players.delete(msg.id);
+      updateScores();
+      break;
+    }
+  }
+}
+
+// ---- ホスト側 ----
+function createRoom() {
+  const name = ($('nameIn').value.trim() || 'プレイヤー').slice(0,10);
+  roomCode = genCode();
+  status('部屋を作成中…');
+  peer = new Peer(PREFIX + roomCode, {debug:1});
+  peer.on('open', id => {
+    isHost = true;
+    me = makeMe(id, name);
+    startGame();
+  });
+  peer.on('connection', conn => {
+    conn.on('data', msg => {
+      if (msg.t === 'hello') {
+        conn.playerId = msg.id;
+        conns.set(msg.id, conn);
+        handle(msg);
+        conn.send({t:'welcome', players:snapshot()});
+        relayAll(msg, conn);
+        updateScores();
+      } else {
+        handle(msg);
+        relayAll(msg, conn);
+      }
+    });
+    conn.on('close', () => {
+      if (conn.playerId && conns.has(conn.playerId)) {
+        conns.delete(conn.playerId);
+        const m = {t:'leave', id:conn.playerId};
+        handle(m);
+        relayAll(m, null);
+      }
+    });
+  });
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id') { peer.destroy(); createRoom(); }
+    else status('エラー: ' + e.type);
+  });
+}
+
+// ---- ゲスト側 ----
+function joinRoom() {
+  const name = ($('nameIn').value.trim() || 'プレイヤー').slice(0,10);
+  const code = $('codeIn').value.trim().toUpperCase();
+  if (code.length !== 4) { status('4文字の部屋コードを入力してね'); return; }
+  roomCode = code;
+  status('接続中…');
+  peer = new Peer({debug:1});
+  peer.on('open', myId => {
+    me = makeMe(myId, name);
+    hostConn = peer.connect(PREFIX + code, {reliable:true});
+    hostConn.on('open', () => {
+      hostConn.send({t:'hello', id:myId, p:{...me}});
+    });
+    hostConn.on('data', handle);
+    hostConn.on('close', () => {
+      if (playing) {
+        toast('ホストとの接続が切れました');
+        playing = false;
+        $('lobby').style.display = 'flex';
+        status('ホストが退出しました。新しい部屋を作ってね。');
+      }
+    });
+  });
+  peer.on('error', e => {
+    if (e.type === 'peer-unavailable') status('その部屋が見つかりません');
+    else status('エラー: ' + e.type);
+  });
+}
+
+// ================== ゲーム開始 ==================
+function startGame() {
+  playing = true;
+  $('lobby').style.display = 'none';
+  $('hud').style.display = 'flex';
+  $('codeLabel').textContent = roomCode;
+  updateScores();
+  setInterval(() => {
+    if (playing) emit({t:'state', id:me.id, x:Math.round(me.x), y:Math.round(me.y), a:+me.a.toFixed(2)});
+  }, SENDRATE);
+}
+
+$('copyBtn').onclick = () => {
+  const url = location.origin + location.pathname + '?room=' + roomCode;
+  navigator.clipboard.writeText(url).then(() => toast('招待リンクをコピーしました!'));
+};
+$('createBtn').onclick = createRoom;
+$('joinBtn').onclick = joinRoom;
+$('codeIn').addEventListener('keydown', e => { if (e.key==='Enter') joinRoom(); });
+
+const qRoom = new URLSearchParams(location.search).get('room');
+if (qRoom) { $('codeIn').value = qRoom.toUpperCase(); $('nameIn').focus(); }
+
+// ================== 入力 ==================
+addEventListener('keydown', e => {
+  if (!playing) return;
+  keys.add(e.key.toLowerCase());
+  if (e.key === ' ') { e.preventDefault(); throwBall(); }
+});
+addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+cv.addEventListener('mousemove', e => {
+  const r = cv.getBoundingClientRect();
+  mouseX = (e.clientX - r.left) * (W / r.width);
+  mouseY = (e.clientY - r.top) * (H / r.height);
+});
+cv.addEventListener('mousedown', () => { if (playing) throwBall(); });
+
+function throwBall() {
+  const now = performance.now();
+  if (now - lastThrow < COOLDOWN) return;
+  lastThrow = now;
+  const bid = me.id + '-' + (ballSeq++);
+  const vx = Math.cos(me.a) * BSPEED, vy = Math.sin(me.a) * BSPEED;
+  const bx = me.x + Math.cos(me.a) * (PR + BR + 2);
+  const by = me.y + Math.sin(me.a) * (PR + BR + 2);
+  balls.set(bid, {owner:me.id, x:bx, y:by, vx, vy, dist:0});
+  emit({t:'throw', id:me.id, bid, x:Math.round(bx), y:Math.round(by), vx:Math.round(vx), vy:Math.round(vy)});
+}
+
+// ================== 更新 ==================
+let lastT = performance.now();
+function update(now) {
+  const dt = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now;
+
+  // ゆっくり降る雪
+  snowDots.forEach(d => {
+    d.y += d.v * dt; d.x += Math.sin(now/1400 + d.p) * 6 * dt;
+    if (d.y > H) { d.y = -4; d.x = Math.random()*W; }
+  });
+
+  if (!playing) return;
+
+  let dx = 0, dy = 0;
+  if (keys.has('w') || keys.has('arrowup')) dy--;
+  if (keys.has('s') || keys.has('arrowdown')) dy++;
+  if (keys.has('a') || keys.has('arrowleft')) dx--;
+  if (keys.has('d') || keys.has('arrowright')) dx++;
+  if (dx || dy) {
+    const len = Math.hypot(dx, dy);
+    let nx = me.x + dx/len * SPEED * dt;
+    let ny = me.y + dy/len * SPEED * dt;
+    nx = Math.max(PR, Math.min(W-PR, nx));
+    ny = Math.max(PR, Math.min(H-PR, ny));
+    if (!collideObst(nx, me.y, PR)) me.x = nx;
+    if (!collideObst(me.x, ny, PR)) me.y = ny;
+  }
+  me.a = Math.atan2(mouseY - me.y, mouseX - me.x);
+
+  players.forEach(p => {
+    p.x += (p.tx - p.x) * 0.35;
+    p.y += (p.ty - p.y) * 0.35;
+  });
+
+  const dead = [];
+  balls.forEach((b, bid) => {
+    const step = Math.hypot(b.vx, b.vy) * dt;
+    b.x += b.vx * dt; b.y += b.vy * dt; b.dist += step;
+    if (b.dist > BRANGE || b.x < 0 || b.x > W || b.y < 0 || b.y > H || collideObst(b.x, b.y, BR)) {
+      dead.push(bid); return;
+    }
+    if (b.owner !== me.id && (b.x-me.x)**2 + (b.y-me.y)**2 < (PR+BR)**2) {
+      dead.push(bid);
+      me.hp--;
+      if (me.hp > 0) {
+        emit({t:'hit', id:me.id, bid, hp:me.hp});
+      } else {
+        const sp = randomSpawn();
+        me.x = sp.x; me.y = sp.y; me.hp = MAXHP;
+        emit({t:'die', id:me.id, by:b.owner, x:Math.round(sp.x), y:Math.round(sp.y)});
+        const killer = players.get(b.owner);
+        if (killer) killer.score++;
+        toast(`❄ ${killer ? killer.name : '?'} にやられた!`);
+        updateScores();
+      }
+    }
+  });
+  dead.forEach(bid => balls.delete(bid));
+}
+
+// ================== 描画 ==================
+// 降る雪(鉛筆の点々)
+const snowDots = Array.from({length:60}, () => ({
+  x: Math.random()*W, y: Math.random()*H,
+  r: Math.random()*1.5+0.6, v: 8+Math.random()*14, p: Math.random()*7
+}));
+// 地面の斜線ハッチング(固定らくがき)
+const hatches = Array.from({length:26}, (_, i) => ({
+  x: (i*137 + 60) % (W-80) + 30, y: (i*211 + 90) % (H-60) + 20, len: 14+((i*53)%18)
+}));
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // うっすら地面のハッチング
+  ctx.globalAlpha = 0.16;
+  hatches.forEach((hh, i) => {
+    sketchStroke(s => wobblyLine(hh.x, hh.y, hh.x+hh.len, hh.y-5, seedOf('h'+i)+s, 1), PENCIL, 1.6);
+  });
+  ctx.globalAlpha = 1;
+
+  // 雪の結晶らくがき(降る)
+  snowDots.forEach((d, i) => {
+    if (d.r > 1.6) {
+      // 大きい粒はアスタリスク型の結晶
+      ctx.globalAlpha = 0.4;
+      const rr = d.r * 2.4;
+      for (let k = 0; k < 3; k++) {
+        const a = k * Math.PI / 3 + (i % 5) * 0.2;
+        sketchStroke(s => wobblyLine(d.x-Math.cos(a)*rr, d.y-Math.sin(a)*rr, d.x+Math.cos(a)*rr, d.y+Math.sin(a)*rr, seedOf('sf'+i)+s, 0.7), PENCIL, 1.1);
+      }
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = 'rgba(137,184,216,.35)';
+      ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 7); ctx.fill();
+    }
+  });
+
+  // 障害物
+  OBST.forEach((o, i) => o.type === 'tree' ? drawTree(o, i) : drawWall(o, i));
+
+  // 雪玉
+  balls.forEach((b, bid) => {
+    // 動きのらくがき線(残像)
+    ctx.globalAlpha = 0.3;
+    sketchStroke(s => wobblyLine(b.x - b.vx*0.045, b.y - b.vy*0.045, b.x - b.vx*0.012, b.y - b.vy*0.012, seedOf(bid)+s, 1), PENCIL, 1.6);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#ffffff';
+    wobblyCirclePath(b.x, b.y, BR, seedOf(bid), 0.16);
+    ctx.fill();
+    sketchStroke(s => wobblyCirclePath(b.x, b.y, BR, seedOf(bid)+s, 0.16), INK, 1.6);
+  });
+
+  // プレイヤー(ゆきだるま)
+  players.forEach(p => drawSnowman(p, false));
+  if (playing && me) drawSnowman(me, true);
+
+  requestAnimationFrame(t => { update(t); draw(); });
+}
+
+// 雪のかべ
+function drawWall(o, i) {
+  ctx.fillStyle = '#ffffff';
+  wobblyRectPath(o.x, o.y, o.w, o.h, seedOf('w'+i), 2.4);
+  ctx.fill();
+  sketchStroke(s => wobblyRectPath(o.x, o.y, o.w, o.h, seedOf('w'+i)+s, 2.4), INK, 2.4);
+  // 雪ブロックのつなぎ目
+  ctx.globalAlpha = 0.5;
+  if (o.w > o.h) {
+    for (let k = 1; k < 3; k++) {
+      const gx = o.x + o.w*k/3;
+      sketchStroke(s => wobblyLine(gx, o.y+4, gx, o.y+o.h-4, seedOf('wg'+i+k)+s, 1.4), PENCIL, 1.6);
+    }
+  } else {
+    for (let k = 1; k < 4; k++) {
+      const gy = o.y + o.h*k/4;
+      sketchStroke(s => wobblyLine(o.x+4, gy, o.x+o.w-4, gy, seedOf('wg'+i+k)+s, 1.4), PENCIL, 1.6);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// もみの木のらくがき
+function drawTree(o, i) {
+  const cx = o.x + o.w/2, base = o.y + o.h, top = o.y - 14;
+  // 幹
+  ctx.fillStyle = '#c8a173';
+  wobblyRectPath(cx-7, base-16, 14, 16, seedOf('tt'+i), 1.4);
+  ctx.fill();
+  sketchStroke(s => wobblyRectPath(cx-7, base-16, 14, 16, seedOf('tt'+i)+s, 1.4), INK, 2);
+  // 3段の三角
+  const layers = [
+    {y: base-12, w: o.w*0.62, h: 34},
+    {y: base-38, w: o.w*0.5,  h: 32},
+    {y: base-62, w: o.w*0.38, h: 30},
+  ];
+  layers.forEach((L, k) => {
+    const tri = s => {
+      const rnd = srand(seedOf('tl'+i+k)+s);
+      ctx.beginPath();
+      const pts = [[cx-L.w, L.y],[cx+L.w, L.y],[cx, L.y-L.h]];
+      const path = [];
+      for (let e = 0; e < 3; e++) {
+        const [ax,ay] = pts[e], [bx,by] = pts[(e+1)%3];
+        const n = 4;
+        for (let t = 0; t < n; t++)
+          path.push([ax+(bx-ax)*t/n + (rnd()-0.5)*3.2, ay+(by-ay)*t/n + (rnd()-0.5)*3.2]);
+      }
+      path.forEach(([px,py], q) => q===0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py));
+      ctx.closePath();
+    };
+    ctx.fillStyle = '#8fbf9f';
+    tri(0); ctx.fill();
+    sketchStroke(tri, '#4f7d5e', 2.2);
+  });
+  // てっぺんの雪
+  ctx.fillStyle = '#ffffff';
+  wobblyCirclePath(cx, base - 92, 7, seedOf('ts'+i), 0.2);
+  ctx.fill();
+  sketchStroke(s => wobblyCirclePath(cx, base - 92, 7, seedOf('ts'+i)+s, 0.2), INK, 1.6);
+}
+
+// ゆきだるまプレイヤー
+function drawSnowman(p, self) {
+  const seed = seedOf(p.id);
+  // 影(鉛筆ぐるぐる)
+  ctx.globalAlpha = 0.14;
+  ctx.fillStyle = INK;
+  wobblyCirclePath(p.x + 3, p.y + PR*0.55, PR*0.9, seed+5, 0.15);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // 体(白い雪だるま)
+  ctx.fillStyle = '#ffffff';
+  wobblyCirclePath(p.x, p.y, PR, seed, 0.07);
+  ctx.fill();
+  sketchStroke(s => wobblyCirclePath(p.x, p.y, PR, seed+s, 0.07), INK, self ? 2.8 : 2.2);
+
+  // 腕(投げる方向へ)+ ミトン
+  const hx = p.x + Math.cos(p.a)*(PR+7), hy = p.y + Math.sin(p.a)*(PR+7);
+  sketchStroke(s => wobblyLine(p.x + Math.cos(p.a)*PR*0.4, p.y + Math.sin(p.a)*PR*0.4, hx, hy, seed+9+s, 1), INK, 2.4);
+  ctx.fillStyle = p.color;
+  wobblyCirclePath(hx, hy, 4.5, seed+13, 0.2);
+  ctx.fill();
+  sketchStroke(s => wobblyCirclePath(hx, hy, 4.5, seed+13+s, 0.2), INK, 1.5);
+
+  // ニット帽(プレイヤーカラー)
+  ctx.fillStyle = p.color;
+  const hat = s => {
+    const rnd = srand(seed+21+s);
+    ctx.beginPath();
+    ctx.moveTo(p.x - PR*0.85 + (rnd()-0.5)*2, p.y - PR*0.45 + (rnd()-0.5)*2);
+    ctx.quadraticCurveTo(p.x + (rnd()-0.5)*3, p.y - PR*1.75, p.x + PR*0.85 + (rnd()-0.5)*2, p.y - PR*0.45 + (rnd()-0.5)*2);
+    ctx.closePath();
+  };
+  hat(0); ctx.fill();
+  sketchStroke(hat, INK, 2);
+  // ぼんぼん
+  ctx.fillStyle = '#ffffff';
+  wobblyCirclePath(p.x, p.y - PR*1.35, 4, seed+27, 0.25);
+  ctx.fill();
+  sketchStroke(s => wobblyCirclePath(p.x, p.y - PR*1.35, 4, seed+27+s, 0.25), INK, 1.5);
+
+  // 目(向いてる方に寄る)
+  const ex = Math.cos(p.a)*3.5, ey = Math.sin(p.a)*3.5 + 1;
+  ctx.fillStyle = INK;
+  ctx.beginPath(); ctx.arc(p.x-4.5+ex, p.y-1+ey, 1.8, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(p.x+4.5+ex, p.y-1+ey, 1.8, 0, 7); ctx.fill();
+  // にんじんの鼻
+  ctx.strokeStyle = '#e07a5f'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(p.x+ex, p.y+2+ey);
+  ctx.lineTo(p.x+ex+Math.cos(p.a)*6, p.y+2+ey+Math.sin(p.a)*6);
+  ctx.stroke();
+
+  // 名前
+  ctx.fillStyle = INK; ctx.font = "14px 'Yomogi', sans-serif"; ctx.textAlign = 'center';
+  ctx.fillText(p.name, p.x, p.y - PR - 18);
+
+  // HP(手描きハート)
+  ctx.font = "11px sans-serif";
+  for (let i = 0; i < MAXHP; i++) {
+    ctx.fillStyle = i < p.hp ? '#e07a5f' : 'rgba(61,64,91,.18)';
+    ctx.fillText('♥', p.x - 11 + i*11, p.y - PR - 5);
+  }
+}
+
+// ================== スコアボード ==================
+function updateScores() {
+  const all = playing ? snapshot() : [];
+  all.sort((a, b) => b.score - a.score);
+  $('scores').innerHTML = all.map((p, i) =>
+    `<span class="score sketchy">${i===0 && p.score>0 ? '👑 ' : ''}<span class="dot" style="background:${p.color}"></span>${escapeHtml(p.name)}: <b>${p.score}</b></span>`
+  ).join('');
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+setInterval(updateScores, 2000);
+
+draw();
+</script>
+</body>
+</html>
