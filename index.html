@@ -43,7 +43,7 @@
 
   #wrap { position:relative; width:min(96vw, 900px); filter:drop-shadow(4px 6px 0 rgba(61,64,91,.14)); }
   canvas {
-    width:100%; display:block; cursor:crosshair;
+    width:100%; display:block; cursor:crosshair; touch-action:none;
     background:var(--paper);
     border:3px solid var(--ink);
     border-radius:255px 18px 225px 18px / 18px 225px 18px 255px;
@@ -173,7 +173,7 @@
     </div>
   </div>
 </div>
-<div id="controls">移動: WASD / 矢印キー ・ 雪玉: クリック / スペース ・ 3発あたったらリスポーン!</div>
+<div id="controls">PC 移動: WASD / 雪玉: クリック ・ スマホ 移動: 画面左ドラッグ / 雪玉: 右側タップ ・ 3発あたったらリスポーン!</div>
 
 <script>
 'use strict';
@@ -500,6 +500,47 @@ cv.addEventListener('mousemove', e => {
 });
 cv.addEventListener('mousedown', () => { if (playing) throwBall(); });
 
+// ---- スマホ: 左半分=バーチャルスティック / 右側タップ=投げる ----
+let joyId = null, joyBase = null, joyVec = {x:0, y:0};
+const JOY_R = 46;
+function tPos(t) {
+  const r = cv.getBoundingClientRect();
+  return { x:(t.clientX - r.left) * (W / r.width), y:(t.clientY - r.top) * (H / r.height) };
+}
+cv.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (!playing) return;
+  for (const t of e.changedTouches) {
+    const p = tPos(t);
+    if (p.x < W * 0.45 && joyId === null) {
+      joyId = t.identifier; joyBase = p; joyVec = {x:0, y:0};
+    } else {
+      mouseX = p.x; mouseY = p.y;
+      me.a = Math.atan2(p.y - me.y, p.x - me.x);
+      throwBall();
+    }
+  }
+}, {passive:false});
+cv.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (t.identifier === joyId) {
+      const p = tPos(t);
+      let dx = p.x - joyBase.x, dy = p.y - joyBase.y;
+      const d = Math.hypot(dx, dy);
+      if (d > JOY_R) { dx = dx/d*JOY_R; dy = dy/d*JOY_R; }
+      joyVec = {x: dx/JOY_R, y: dy/JOY_R};
+    }
+  }
+}, {passive:false});
+function touchEnd(e) {
+  for (const t of e.changedTouches) {
+    if (t.identifier === joyId) { joyId = null; joyVec = {x:0, y:0}; }
+  }
+}
+cv.addEventListener('touchend', touchEnd);
+cv.addEventListener('touchcancel', touchEnd);
+
 function throwBall() {
   const now = performance.now();
   if (now - lastThrow < COOLDOWN) return;
@@ -526,6 +567,7 @@ function update(now) {
 
   if (!playing) return;
 
+  let mvx = 0, mvy = 0;
   let dx = 0, dy = 0;
   if (keys.has('w') || keys.has('arrowup')) dy--;
   if (keys.has('s') || keys.has('arrowdown')) dy++;
@@ -533,8 +575,12 @@ function update(now) {
   if (keys.has('d') || keys.has('arrowright')) dx++;
   if (dx || dy) {
     const len = Math.hypot(dx, dy);
-    let nx = me.x + dx/len * SPEED * dt;
-    let ny = me.y + dy/len * SPEED * dt;
+    mvx = dx/len; mvy = dy/len;
+  }
+  if (joyId !== null && (joyVec.x || joyVec.y)) { mvx = joyVec.x; mvy = joyVec.y; }
+  if (mvx || mvy) {
+    let nx = me.x + mvx * SPEED * dt;
+    let ny = me.y + mvy * SPEED * dt;
     nx = Math.max(PR, Math.min(W-PR, nx));
     ny = Math.max(PR, Math.min(H-PR, ny));
     if (!collideObst(nx, me.y, PR)) me.x = nx;
@@ -629,6 +675,18 @@ function draw() {
   // プレイヤー(ゆきだるま)
   players.forEach(p => drawSnowman(p, false));
   if (playing && me) drawSnowman(me, true);
+
+  // バーチャルスティック(手描き風)
+  if (joyId !== null && joyBase) {
+    ctx.globalAlpha = 0.35;
+    sketchStroke(s => wobblyCirclePath(joyBase.x, joyBase.y, JOY_R, seedOf('joy')+s, 0.06), INK, 2);
+    ctx.globalAlpha = 0.75;
+    ctx.fillStyle = '#ffffff';
+    wobblyCirclePath(joyBase.x + joyVec.x*JOY_R, joyBase.y + joyVec.y*JOY_R, 17, seedOf('knob'), 0.1);
+    ctx.fill();
+    sketchStroke(s => wobblyCirclePath(joyBase.x + joyVec.x*JOY_R, joyBase.y + joyVec.y*JOY_R, 17, seedOf('knob')+s, 0.1), INK, 2.2);
+    ctx.globalAlpha = 1;
+  }
 
   requestAnimationFrame(t => { update(t); draw(); });
 }
