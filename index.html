@@ -71,17 +71,28 @@
 
   /* ====== ロビー(メモ用紙) ====== */
   #lobby {
-    position:absolute; inset:0;
+    position:fixed; inset:0; z-index:10;
     display:flex; align-items:center; justify-content:center;
+    background:rgba(244,236,216,.75);
+    backdrop-filter:blur(3px);
   }
   #lobbyCard {
     position:relative; transform:rotate(-1.3deg);
     padding:34px 44px 28px;
+    max-width:92vw;
     display:flex; flex-direction:column; align-items:center; gap:13px;
     background:var(--paper2);
     border:2.5px solid var(--ink);
     border-radius:255px 25px 225px 25px / 25px 225px 25px 255px;
     box-shadow:3px 5px 0 rgba(61,64,91,.18);
+  }
+  /* 縦長・狭い画面ではカードをコンパクトに */
+  @media (max-width:600px) {
+    #lobbyCard { padding:22px 22px 18px; gap:10px; }
+    #lobbyTitle { font-size:19px !important; }
+    #lobby input { width:190px; font-size:15px; }
+    .btn { font-size:15px; padding:8px 18px; }
+    #controls { font-size:11px; padding:0 10px; }
   }
   #lobbyCard::before {           /* マスキングテープ */
     content:""; position:absolute; top:-14px; left:50%;
@@ -173,7 +184,7 @@
     </div>
   </div>
 </div>
-<div id="controls">PC 移動: WASD / 雪玉: クリック ・ スマホ 移動: 画面左ドラッグ / 雪玉: 右側タップ ・ 動くと巨大化、当たると縮む。ちいさくなりすぎたらやられ!でかい雪玉は3つに分裂!</div>
+<div id="controls">PC 移動: WASD / 雪玉: クリック ・ スマホ 移動: 画面左ドラッグ / 雪玉: 右側タップ ・ 動くと巨大化、当たると縮む。ちいさくなりすぎたらやられる!でかい雪玉は3つに分裂!</div>
 
 <script>
 'use strict';
@@ -391,6 +402,7 @@ function handle(msg) {
         deathBurst(v.x, v.y, v.dr || v.r, v.color);
         v.x = v.tx = msg.x; v.y = v.ty = msg.y;
         v.r = PR; v.dr = 2; // ぽんっと生え直す
+        v.invUntil = performance.now() + INV_MS; // リスポーン無敵(表示用)
       }
       const killer = (msg.by === me.id) ? me : players.get(msg.by);
       if (killer) killer.score++;
@@ -792,6 +804,7 @@ function updateCpu(dt) {
         addShake(7);
         const sp = randomSpawn();
         bot.x = bot.tx = sp.x; bot.y = bot.ty = sp.y; bot.r = PR; bot.dr = 2;
+        bot.invUntil = performance.now() + INV_MS; // CPUもリスポーン無敵
         me.score++;
         toast('❄ CPU をたおした!');
         updateScores();
@@ -870,6 +883,7 @@ function update(now) {
         addShake(12);
         const sp = randomSpawn();
         me.x = sp.x; me.y = sp.y; me.r = PR; me.dr = 2; // リスポーンで元のサイズに
+        me.invUntil = performance.now() + INV_MS; // リスポーン無敵(投げたら終了)
         emit({t:'die', id:me.id, by:b.owner, x:Math.round(sp.x), y:Math.round(sp.y)});
         const killer = players.get(b.owner);
         if (killer) killer.score++;
