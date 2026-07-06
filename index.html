@@ -1014,11 +1014,13 @@ function updateCpu(dt) {
   // 撃つのは3つの場合だけ:
   //  A) だっしゅつ: 本当に動けない状態が0.5秒続いた → 投げて痩せる
   //  B) しとめる: チャージ完了+射程内(偏差解1.4秒以内・560px以内)
-  //  C) 反射: 至近距離(0.3秒以内)のほぼ確実に当たる弾のみ
+  //  C) 確定ヒット: 相手が今から全力で動いても当たり判定を抜けられない距離なら撃つ
   const fireEscape = cpuHardStuckT > 0.5;
   const fireUlt = bot.r >= ULT_R && sol !== null && sol < 1.4 && dMe < 560;
-  const fireReflex = bot.r < ULT_R && sol !== null && sol < 0.3 && losClear(bot.x, bot.y, tx, ty);
-  if (cpuCd <= 0 && (fireEscape || fireUlt || fireReflex)) {
+  // 「おそらく避けられない」判定: 回避に必要な時間+人間の反応猶予(0.18秒)より飛翔時間が短ければ撃つ
+  const dodgeNeed = (me.r + BR * bot.r / PR) / SPEED + 0.18;
+  const fireSure = bot.r < ULT_R && sol !== null && sol < dodgeNeed && losClear(bot.x, bot.y, tx, ty);
+  if (cpuCd <= 0 && (fireEscape || fireUlt || fireSure)) {
     cpuCd = CPU_COOLDOWN;
     bot.invUntil = 0; // 投げたら無敵終了
     const bid = CPU_ID + '-' + (cpuSeq++);
