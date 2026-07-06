@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ゆきがっせん.io — オンライン雪合戦</title>
+<meta name="description" content="ブラウザで遊べるらくがき風オンライン雪合戦。サーバー不要・無料。部屋コードを共有して友達と対戦!">
+<meta property="og:title" content="ゆきがっせん.io ❄ オンライン雪合戦">
+<meta property="og:description" content="動くとおおきくなり、当たるとちいさくなる。らくがき風オンライン雪合戦、無料!">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://yukigassen.vercel.app/">
+<meta property="og:image" content="https://yukigassen.vercel.app/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛄</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Yomogi&display=swap" rel="stylesheet">
@@ -41,7 +49,7 @@
   }
   #subtitle { font-size:13px; opacity:.6; margin-bottom:10px; transform:rotate(-.5deg); }
 
-  #wrap { position:relative; width:min(96vw, 900px); filter:drop-shadow(4px 6px 0 rgba(61,64,91,.14)); }
+  #wrap { position:relative; width:min(96vw, 82vh, 1000px); filter:drop-shadow(4px 6px 0 rgba(61,64,91,.14)); }
   canvas {
     width:100%; display:block; cursor:crosshair; touch-action:none;
     background:var(--paper);
@@ -73,8 +81,8 @@
   #lobby {
     position:fixed; inset:0; z-index:10;
     display:flex; align-items:center; justify-content:center;
-    background:rgba(244,236,216,.75);
-    backdrop-filter:blur(3px);
+    background:rgba(244,236,216,.96);
+    backdrop-filter:blur(4px);
   }
   #lobbyCard {
     position:relative; transform:rotate(-1.3deg);
@@ -114,7 +122,7 @@
 
   /* ====== HUD ====== */
   #hud {
-    display:none; width:min(96vw, 900px); margin:10px 0 8px; gap:10px;
+    display:none; width:min(96vw, 82vh, 1000px); margin:10px 0 8px; gap:10px;
     justify-content:space-between; align-items:flex-start; flex-wrap:wrap;
   }
   #roomBadge {
@@ -161,13 +169,14 @@
 
 <div id="hud">
   <div id="roomBadge" class="sketchy">部屋コード <b id="codeLabel" title="タップで表示/非表示">----</b>
+    <span id="pcount" style="color:#a39a83;font-size:13px"></span>
     <button class="btn" id="copyBtn">招待リンクをコピー</button>
   </div>
   <div id="scores"></div>
 </div>
 
 <div id="wrap">
-  <canvas id="cv" width="900" height="520"></canvas>
+  <canvas id="cv" width="1100" height="1100"></canvas>
   <div id="toasts"></div>
   <div id="lobby">
     <div id="lobbyCard">
@@ -184,14 +193,14 @@
     </div>
   </div>
 </div>
-<div id="controls">PC 移動: WASD / 雪玉: クリック ・ スマホ 移動: 画面左ドラッグ / 雪玉: 右側タップ ・ 動くと巨大化、当たると縮む。ちいさくなりすぎたらやられる!でかい雪玉は3つに分裂!</div>
+<div id="controls">PC 移動: WASD / 雪玉: クリック ・ スマホ 移動: 画面左ドラッグ / 雪玉: 右側タップ ・ 動くとおおきくなり、当たるか発射でちいさくなる。ちいさくなりすぎたらやられる。おおきい雪玉は3つに分裂。とてもおおきくなると一撃必殺雪玉!</div>
 
 <script>
 'use strict';
 // ================== 定数 ==================
-const W = 900, H = 520;
+const W = 1100, H = 1100; // 正方形のでかいステージ
 const PR = 15;          // プレイヤー半径(初期値)
-const GROW = 0.012;     // 移動1pxあたりの成長量(100px移動で半径+1.2px)・上限なし
+const GROW = 0.028;     // 移動1pxあたりの成長量(100px移動で半径+2.8px)・上限なし
 const BR = 6;           // 雪玉半径(初期値・サイズに比例して拡大)
 const SPEED = 230;      // 移動速度 px/s
 const BSPEED = 470;     // 雪玉速度
@@ -200,20 +209,25 @@ const DEATH_R = 8.5;    // これ以下に縮んだら倒される
 const SHRINK = 0.5;     // 被弾ダメージ = 弾の半径 × これ × √(自分の半径/PR) ※でかいほど痛い
 const SPLIT_R = 9;      // この半径以上の雪玉は着弾時に3方向に分裂
 const THROW_COST = 0.13;// 投げると弾の半径×これだけ自分が縮む(雪玉は自分の体から作る)
+const ULT_R = 90;       // この半径以上でチャージ完了: 次の一投は一撃必殺・貫通の最強雪玉(撃つと初期サイズに戻る)
 const COOLDOWN = 420;   // 投擲間隔 ms
 const INV_MS = 3000;    // 参加直後の無敵時間 ms(投げたら即終了)
 const SENDRATE = 50;    // 状態送信間隔 ms
-const PREFIX = 'yukigassen-io-';
+const PREFIX = 'yukigassen-io-v3-'; // 通信仕様を変えたらここを上げる(旧バージョンと同室になるのを防ぐ)
+const WIN_SCORE = 3;    // 先取ポイント(ラウンド制)
 const INK = '#3d405b';
 const PENCIL = '#89b8d8';
 const COLORS = ['#e07a5f','#e8b64c','#81b29a','#6a8ec9','#b0729f','#e78ea5','#ec9f4e','#5fb3a9'];
-// 障害物: type 'tree' は木のらくがき、'wall' は雪のかべ
+// 障害物: 'tree'=木 'wall'=雪のかべ 'rock'=岩(非対称配置・通路幅は120px以上)
 const OBST = [
-  {x:150, y:90,  w:50,  h:150, type:'wall'},
-  {x:700, y:280, w:50,  h:150, type:'wall'},
-  {x:410, y:220, w:80,  h:80,  type:'tree'},
-  {x:240, y:390, w:130, h:40,  type:'wall'},
-  {x:530, y:90,  w:130, h:40,  type:'wall'},
+  {x:150, y:150, w:80,  h:80,  type:'tree'},
+  {x:640, y:170, w:230, h:45,  type:'wall'},
+  {x:390, y:330, w:70,  h:70,  type:'tree'},
+  {x:530, y:520, w:120, h:95,  type:'rock'},
+  {x:830, y:420, w:50,  h:250, type:'wall'},
+  {x:150, y:600, w:75,  h:75,  type:'tree'},
+  {x:300, y:800, w:220, h:45,  type:'wall'},
+  {x:800, y:830, w:80,  h:80,  type:'tree'},
 ];
 
 // ================== 状態 ==================
@@ -374,7 +388,16 @@ function handle(msg) {
     }
     case 'welcome': {
       msg.players.forEach(p => addPlayer(p));
-      startGame();
+      if (!playing) startGame(); else updateScores(); // ホスト交代後の再参加では初期化しない
+      break;
+    }
+    case 'item': {
+      items.set(msg.iid, {kind: msg.kind, x: msg.x, y: msg.y});
+      break;
+    }
+    case 'take': {
+      const taker = players.get(msg.id);
+      takeItem(msg.iid, taker || {});
       break;
     }
     case 'state': {
@@ -383,7 +406,10 @@ function handle(msg) {
       break;
     }
     case 'throw': {
-      balls.set(msg.bid, {owner:msg.id, x:msg.x, y:msg.y, vx:msg.vx, vy:msg.vy, r:msg.r || BR, dist:0});
+      balls.set(msg.bid, {owner:msg.id, x:msg.x, y:msg.y, vx:msg.vx, vy:msg.vy, r:msg.r || BR,
+                          dist:msg.ult ? -BRANGE*0.6 : 0, ult:!!msg.ult});
+      if (msg.ult) { pRing(msg.x, msg.y, msg.r); pSnow(msg.x, msg.y, 20, 240, 3.2); addShake(5); sfx.ult(); }
+      else sfx.throw();
       const tp = players.get(msg.id);
       if (tp) tp.invUntil = 0; // 投げたら無敵終了
       break;
@@ -394,6 +420,7 @@ function handle(msg) {
       else { pSnow(msg.x, msg.y, 8, 180, 2.6); }
       const v = players.get(msg.id);
       if (v) v.r = msg.r; // 当たったぶん縮む(drがなめらかに追従)
+      sfx.hit();
       break;
     }
     case 'die': {
@@ -406,6 +433,7 @@ function handle(msg) {
       }
       const killer = (msg.by === me.id) ? me : players.get(msg.by);
       if (killer) killer.score++;
+      if (msg.by === me.id) sfx.kill(); else sfx.hit();
       const vn = v ? v.name : '?', kn = killer ? killer.name : '?';
       toast(`❄ ${kn} が ${vn} をたおした!`);
       updateScores();
@@ -423,6 +451,7 @@ function handle(msg) {
 
 // ---- ホスト側 ----
 function createRoom() {
+  audio(); // ユーザー操作のタイミングで音声を有効化
   const name = ($('nameIn').value.trim() || 'プレイヤー').slice(0,10);
   roomCode = genCode();
   status('部屋を作成中…');
@@ -432,40 +461,88 @@ function createRoom() {
     me = makeMe(id, name);
     startGame();
   });
-  peer.on('connection', conn => {
-    conn.on('data', msg => {
-      if (msg.t === 'hello') {
-        // 1人プレイ(CPU戦)→ 複数人になる瞬間だけスコアをリセット
-        if (humanCount() === 0) { deactivateCpu(); me.score = 0; }
-        conn.playerId = msg.id;
-        conns.set(msg.id, conn);
-        handle(msg);
-        conn.send({t:'welcome', players:snapshot()});
-        relayAll(msg, conn);
-        updateScores();
-      } else {
-        handle(msg);
-        relayAll(msg, conn);
-      }
-    });
-    conn.on('close', () => {
-      if (conn.playerId && conns.has(conn.playerId)) {
-        conns.delete(conn.playerId);
-        const m = {t:'leave', id:conn.playerId};
-        handle(m);
-        relayAll(m, null);
-        if (humanCount() === 0) activateCpu(); // また1人になったらCPU復帰
-      }
-    });
-  });
+  peer.on('connection', setupHostConn);
   peer.on('error', e => {
     if (e.type === 'unavailable-id') { peer.destroy(); createRoom(); }
     else status('エラー: ' + e.type);
   });
 }
+// ホスト用: ゲスト接続のセットアップ(ホスト引き継ぎ後も使う)
+function setupHostConn(conn) {
+  conn.on('data', msg => {
+    if (msg.t === 'hello') {
+      // CPU戦 → 対人戦になる瞬間だけスコアをリセット
+      if (cpuActive) { deactivateCpu(); me.score = 0; }
+      conn.playerId = msg.id;
+      conns.set(msg.id, conn);
+      handle(msg);
+      conn.send({t:'welcome', players:snapshot()});
+      relayAll(msg, conn);
+      updateScores();
+    } else {
+      handle(msg);
+      relayAll(msg, conn);
+    }
+  });
+  conn.on('close', () => {
+    if (conn.playerId && conns.has(conn.playerId)) {
+      conns.delete(conn.playerId);
+      const m = {t:'leave', id:conn.playerId};
+      handle(m);
+      relayAll(m, null);
+      if (humanCount() === 0) activateCpu(); // また1人になったらCPU復帰
+    }
+  });
+}
+
+// ---- ホスト切断時の自動引き継ぎ ----
+let migrating = false;
+function onHostLost() {
+  if (!playing || migrating || isHost) return;
+  migrating = true;
+  players.delete(PREFIX + roomCode); // 旧ホストのプレイヤーを削除
+  updateScores();
+  // 残りメンバーのうちID辞書順で最小の人が新ホストになる
+  const ids = [me.id, ...[...players.keys()].filter(k => k !== CPU_ID)].sort();
+  if (ids[0] === me.id) {
+    toast('ホストを引き継ぎました');
+    setTimeout(becomeHost, 900); // 旧ルームIDの解放を待つ
+  } else {
+    toast('ホスト交代中…');
+    setTimeout(rejoinNewHost, 2600);
+  }
+}
+function becomeHost() {
+  try { peer.destroy(); } catch (e) {}
+  conns.clear();
+  peer = new Peer(PREFIX + roomCode, {debug:1});
+  peer.on('open', id => {
+    isHost = true; hostConn = null; migrating = false;
+    me.id = id; // 自分のIDが部屋IDに変わる
+    itemTimer = 5;
+    setTimeout(() => { if (isHost && playing && humanCount() === 0) activateCpu(); }, 4000);
+  });
+  peer.on('connection', setupHostConn);
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id') setTimeout(becomeHost, 1200);
+  });
+}
+function rejoinNewHost() {
+  players.clear();
+  balls.clear();
+  hostConn = peer.connect(PREFIX + roomCode, {reliable:true});
+  hostConn.on('open', () => {
+    migrating = false;
+    hostConn.send({t:'hello', id:me.id,
+      p:{id:me.id, name:me.name, color:me.color, x:me.x, y:me.y, a:me.a, r:me.r, score:me.score}});
+  });
+  hostConn.on('data', handle);
+  hostConn.on('close', onHostLost);
+}
 
 // ---- ゲスト側 ----
 function joinRoom() {
+  audio(); // ユーザー操作のタイミングで音声を有効化
   const name = ($('nameIn').value.trim() || 'プレイヤー').slice(0,10);
   const code = $('codeIn').value.trim().toUpperCase();
   if (code.length !== 4) { status('4文字の部屋コードを入力してね'); return; }
@@ -479,16 +556,10 @@ function joinRoom() {
       hostConn.send({t:'hello', id:myId, p:{...me}});
     });
     hostConn.on('data', handle);
-    hostConn.on('close', () => {
-      if (playing) {
-        toast('ホストとの接続が切れました');
-        playing = false;
-        $('lobby').style.display = 'flex';
-        status('ホストが退出しました。新しい部屋を作ってね。');
-      }
-    });
+    hostConn.on('close', onHostLost); // ホストが落ちたら自動で引き継ぎ
   });
   peer.on('error', e => {
+    if (migrating && e.type === 'peer-unavailable') { setTimeout(rejoinNewHost, 1500); return; }
     if (e.type === 'peer-unavailable') status('その部屋が見つかりません');
     else status('エラー: ' + e.type);
   });
@@ -585,15 +656,120 @@ function throwBall() {
   lastThrow = now;
   me.invUntil = 0; // 投げたら無敵終了
   const bid = me.id + '-' + (ballSeq++);
-  const ballR = BR * me.r / PR; // 自分のサイズに比例して弾もでかい
-  const vx = Math.cos(me.a) * BSPEED, vy = Math.sin(me.a) * BSPEED;
+  const isUlt = me.r >= ULT_R; // チャージ完了なら最強雪玉
+  const ballR = isUlt ? me.r * 0.55 : BR * me.r / PR;
+  const spd = isUlt ? BSPEED * 0.8 : BSPEED;
+  const vx = Math.cos(me.a) * spd, vy = Math.sin(me.a) * spd;
   const bx = me.x + Math.cos(me.a) * (me.r + ballR + 2);
   const by = me.y + Math.sin(me.a) * (me.r + ballR + 2);
-  balls.set(bid, {owner:me.id, x:bx, y:by, vx, vy, r:ballR, dist:0});
-  // 雪玉は自分の体から削って作る(ただし投げ死にはしない)
-  me.r = Math.max(DEATH_R + 0.7, me.r - ballR * THROW_COST);
-  pSnow(bx, by, 4, 70, 1.6); // 投げた瞬間の雪煙
-  emit({t:'throw', id:me.id, bid, x:Math.round(bx), y:Math.round(by), vx:Math.round(vx), vy:Math.round(vy), r:+ballR.toFixed(1)});
+  balls.set(bid, {owner:me.id, x:bx, y:by, vx, vy, r:ballR, dist:isUlt ? -BRANGE*0.6 : 0, ult:isUlt});
+  if (isUlt) {
+    me.r = PR; // 体の雪を全部使う
+    addShake(9);
+    pRing(bx, by, ballR);
+    pRing(bx, by, ballR * 0.5, '#e07a5f');
+    pSnow(bx, by, 26, 260, 3.4);
+    sfx.ult();
+  } else {
+    // 雪玉は自分の体から削って作る(ただし投げ死にはしない)
+    me.r = Math.max(DEATH_R + 0.7, me.r - ballR * THROW_COST);
+    pSnow(bx, by, 4, 70, 1.6); // 投げた瞬間の雪煙
+    sfx.throw();
+  }
+  emit({t:'throw', id:me.id, bid, x:Math.round(bx), y:Math.round(by), vx:Math.round(vx), vy:Math.round(vy), r:+ballR.toFixed(1), ult:isUlt ? 1 : 0});
+}
+
+// ================== 効果音(Web Audio・ファイル不要) ==================
+let actx = null;
+function audio() {
+  if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function tone(freq, dur, type = 'sine', vol = 0.12, delay = 0, slide = 0) {
+  try {
+    const ac = audio(), t0 = ac.currentTime + delay;
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t0);
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), t0 + dur);
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    o.connect(g).connect(ac.destination);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  } catch (e) {}
+}
+function noiseSfx(dur, vol = 0.2, delay = 0, cutoff = 900) {
+  try {
+    const ac = audio(), t0 = ac.currentTime + delay;
+    const n = Math.floor(ac.sampleRate * dur);
+    const buf = ac.createBuffer(1, n, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random()*2 - 1) * (1 - i/n);
+    const src = ac.createBufferSource(); src.buffer = buf;
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = cutoff;
+    const g = ac.createGain(); g.gain.value = vol;
+    src.connect(f); f.connect(g); g.connect(ac.destination);
+    src.start(t0);
+  } catch (e) {}
+}
+const sfx = {
+  throw() { tone(620, 0.09, 'sine', 0.1, 0, -280); },                       // ぽっ
+  hit()   { noiseSfx(0.16, 0.28, 0, 750); },                                // ぼふっ
+  die()   { noiseSfx(0.3, 0.24, 0, 500); tone(380,0.12,'square',0.07); tone(280,0.12,'square',0.07,0.1); tone(190,0.24,'square',0.07,0.2); },
+  kill()  { tone(523,0.09,'triangle',0.12); tone(659,0.09,'triangle',0.12,0.08); tone(784,0.18,'triangle',0.12,0.16); },
+  charge(){ tone(440,0.1,'sine',0.1); tone(660,0.1,'sine',0.1,0.09); tone(880,0.22,'sine',0.1,0.18); },
+  ult()   { noiseSfx(0.7, 0.3, 0, 220); tone(70,0.7,'sawtooth',0.14,0,50); tone(120,0.5,'sawtooth',0.07,0.1,60); }, // ゴゴゴ
+  item()  { tone(700,0.07,'triangle',0.12,0,250); tone(1050,0.13,'triangle',0.1,0.06); },
+  win()   { [523,659,784,1047].forEach((f,i)=>tone(f,0.2,'triangle',0.12,i*0.13)); tone(1319,0.4,'triangle',0.1,0.55); },
+};
+
+// ================== アイテム・足あと・ラウンド状態 ==================
+const items = new Map();   // iid -> {kind:'snow'|'cocoa', x, y}
+let itemTimer = 7;         // ホストのみ使用
+const fprints = [];        // 足あと
+let roundEndT = 0, roundWinner = null;
+function addPrint(p) {
+  fprints.push({x: p.x, y: p.y + (p.dr || PR)*0.6, r: (p.dr || PR)*0.45, life:0, max:4});
+  if (fprints.length > 240) fprints.shift();
+}
+function takeItem(iid, p) {
+  const it = items.get(iid);
+  if (!it) return;
+  items.delete(iid);
+  pRing(it.x, it.y, 14);
+  pSnow(it.x, it.y, 8, 140, 2.5, '#ffffff');
+  sfx.item();
+  if (p.r) p.r += 10; // 大雪玉: 即+10サイズ
+}
+function startRoundEnd(w) {
+  roundEndT = 6;
+  roundWinner = {name: w.name, color: w.color};
+  balls.clear(); pendingBalls.length = 0;
+  sfx.win(); addShake(6);
+  for (let i = 0; i < 70; i++) { // 紙吹雪
+    parts.push({type:'dot', x: Math.random()*W, y: -10 - Math.random()*250,
+                vx:(Math.random()-0.5)*70, vy: 80 + Math.random()*130,
+                life:0, max: 2.5 + Math.random()*2, s: 3 + Math.random()*3,
+                c: COLORS[Math.floor(Math.random()*COLORS.length)]});
+  }
+}
+function resetRound() {
+  roundEndT = 0; roundWinner = null;
+  me.score = 0;
+  players.forEach(p => p.score = 0);
+  balls.clear(); pendingBalls.length = 0;
+  items.clear(); itemTimer = 5;
+  const sp = randomSpawn();
+  me.x = sp.x; me.y = sp.y; me.r = PR; me.dr = 2;
+  me.invUntil = performance.now() + INV_MS;
+  const bot = players.get(CPU_ID);
+  if (bot) {
+    const s2 = randomSpawn();
+    bot.x = bot.tx = s2.x; bot.y = bot.ty = s2.y; bot.r = PR; bot.dr = 2;
+    bot.invUntil = performance.now() + INV_MS;
+  }
+  updateScores();
 }
 
 // ================== パーティクル & 演出 ==================
@@ -645,6 +821,13 @@ const CPU_COOLDOWN = COOLDOWN; // 連射速度もプレイヤーと同じ(身体
 let cpuActive = false, cpuCd = 0, cpuSeq = 0;
 let strafeDir = 1, strafeTimer = 0;
 let cpuStuckT = 0, cpuRampageT = 0, cpuJerkT = 0, cpuJerk = null; // スタック時の暴れモード用
+let cpuNetT = 0, cpuNetX = 0, cpuNetY = 0; // その場ジタバタ検知(正味の移動量ウォッチ)
+let cpuHardStuckT = 0; // 「本当に動けていない」継続時間(投げて脱出の判定用)
+// 育成ラン用の周回コース(マップ外周のひし形・障害物なし地点)
+const CPU_WPS = [{x:550,y:110},{x:990,y:550},{x:550,y:990},{x:110,y:550}];
+let cpuWp = 0;
+let meCharged = false; // 最強雪玉チャージ通知済みフラグ
+let mePrintD = 0;      // 足あと用の移動距離
 let meVX = 0, meVY = 0;
 
 function humanCount() { return players.size - (players.has(CPU_ID) ? 1 : 0); }
@@ -696,34 +879,67 @@ function updateCpu(dt) {
   const bot = players.get(CPU_ID);
   if (!bot) return;
 
-  // 1) 飛んでくる雪玉を予測してかわす
+  // ===== 層1: 回避(最優先・常時) — 全弾の脅威を距離加重で合成 =====
+  const dMe = Math.hypot(me.x - bot.x, me.y - bot.y) || 1;
   let mvx = 0, mvy = 0, dodging = false;
   balls.forEach(b => {
     if (b.owner === CPU_ID) return;
     const bv = Math.hypot(b.vx, b.vy);
     if (!bv) return;
     const t = ((bot.x-b.x)*b.vx + (bot.y-b.y)*b.vy) / (bv*bv);
-    if (t > 0 && t < 0.7) {
-      const cx = b.x + b.vx*t, cy = b.y + b.vy*t;
-      if (Math.hypot(bot.x-cx, bot.y-cy) < bot.r + b.r + 27) {
-        const px = -b.vy/bv, py = b.vx/bv;
-        const side = ((bot.x-b.x)*px + (bot.y-b.y)*py) >= 0 ? 1 : -1;
-        mvx += px*side; mvy += py*side; dodging = true;
+    if (t <= 0 || t > (b.ult ? 1.8 : 1.3)) return;
+    const cx = b.x + b.vx*t, cy = b.y + b.vy*t;
+    const miss = Math.hypot(bot.x-cx, bot.y-cy);
+    const margin = bot.r + b.r + (b.ult ? 80 : 45);
+    if (miss >= margin) return;
+    const px = -b.vy/bv, py = b.vx/bv;
+    let side = ((bot.x-b.x)*px + (bot.y-b.y)*py) >= 0 ? 1 : -1;
+    // 逃げた先が壁・障害物なら反対側へ
+    const nx = bot.x + px*side*50, ny = bot.y + py*side*50;
+    if (nx < bot.r || nx > W-bot.r || ny < bot.r || ny > H-bot.r || collideObst(nx, ny, bot.r)) side = -side;
+    const wgt = (margin - miss) / margin + (b.ult ? 1 : 0); // 直撃コースほど強く・最強雪玉は最優先
+    mvx += px*side*wgt; mvy += py*side*wgt;
+    dodging = true;
+  });
+  // 打ち消し合いはフォールバック
+  if (dodging && Math.hypot(mvx, mvy) < 0.25) { dodging = false; mvx = 0; mvy = 0; }
+
+  // ===== 層2: 状態行動(そだてる/しとめる) =====
+  if (!dodging) {
+    strafeTimer -= dt;
+    if (strafeTimer <= 0) { strafeTimer = 0.7 + Math.random(); if (Math.random() < 0.5) strafeDir *= -1; }
+    const dx = (me.x-bot.x)/dMe, dy = (me.y-bot.y)/dMe;
+    let ax = 0, ay = 0;
+    if (bot.r >= ULT_R) {
+      // しとめる: 300〜520pxの狙撃間合いをキープ(無理に近づかない・貫通なので射線不要)
+      if (dMe > 520) { ax += dx; ay += dy; }
+      else if (dMe < 300) { ax -= dx; ay -= dy; }
+      ax += -dy * strafeDir * 0.8; ay += dx * strafeDir * 0.8;
+    } else {
+      // そだてる: 相手より明確に近いアイテムだけ拾う → なければ外周ラン
+      let item = null, itd = 1e9;
+      items.forEach(it => {
+        const d2 = Math.hypot(it.x - bot.x, it.y - bot.y);
+        if (d2 < itd && d2 < Math.hypot(it.x - me.x, it.y - me.y) * 1.6) { itd = d2; item = it; }
+      });
+      if (item) {
+        ax += (item.x - bot.x)/itd; ay += (item.y - bot.y)/itd;
+      } else {
+        const wp = CPU_WPS[cpuWp];
+        if (Math.hypot(wp.x - bot.x, wp.y - bot.y) < 90) {
+          // つぎの経由点は「相手から遠いほう」を選ぶ(前進 or 引き返す)
+          const n1 = (cpuWp + 1) % CPU_WPS.length, n3 = (cpuWp + 3) % CPU_WPS.length;
+          cpuWp = Math.hypot(CPU_WPS[n1].x-me.x, CPU_WPS[n1].y-me.y) >= Math.hypot(CPU_WPS[n3].x-me.x, CPU_WPS[n3].y-me.y) ? n1 : n3;
+        }
+        const wx = wp.x - bot.x, wy = wp.y - bot.y, wd = Math.hypot(wx, wy) || 1;
+        ax += wx/wd; ay += wy/wd;
+      }
+      // 相手からの反発(近いほど強い)
+      if (dMe < 380) {
+        const rep = (380 - dMe) / 380 * 1.6;
+        ax -= dx * rep; ay -= dy * rep;
       }
     }
-  });
-  // 回避ベクトルが打ち消し合ってほぼゼロなら、通常移動にフォールバック
-  if (dodging && Math.hypot(mvx, mvy) < 0.3) { dodging = false; mvx = 0; mvy = 0; }
-  // 2) かわす必要がなければ距離を保って回り込む
-  if (!dodging) {
-    const dx = me.x-bot.x, dy = me.y-bot.y, d = Math.hypot(dx, dy) || 1;
-    strafeTimer -= dt;
-    if (strafeTimer <= 0) { strafeTimer = 0.8 + Math.random()*1.2; if (Math.random() < 0.5) strafeDir *= -1; }
-    let ax = 0, ay = 0;
-    if (d > 300) { ax += dx/d; ay += dy/d; }
-    else if (d < 170) { ax -= dx/d; ay -= dy/d; }
-    ax += -dy/d * strafeDir * 0.9;
-    ay +=  dx/d * strafeDir * 0.9;
     const al = Math.hypot(ax, ay) || 1;
     mvx = ax/al; mvy = ay/al;
   }
@@ -759,6 +975,9 @@ function updateCpu(dt) {
     } else {
       cpuStuckT = Math.max(0, cpuStuckT - dt * 2);
     }
+    // 厳密な「動けていない」判定: 動く意思があるのにほぼ完全に静止し続けている
+    if (moved < SPEED * dt * 0.15) cpuHardStuckT += dt;
+    else cpuHardStuckT = 0;
     if (cpuStuckT > 0.2) {
       cpuStuckT = 0;
       strafeDir *= -1; // 回り込み方向も反転
@@ -775,30 +994,66 @@ function updateCpu(dt) {
       cpuJerkT = 0;
     }
   }
-  // 3) 完璧な偏差撃ち
-  const sol = leadSolve(me.x-bot.x, me.y-bot.y, meVX, meVY, BSPEED);
+  // その場ジタバタ検知: 0.9秒間の正味移動が小さすぎたら暴れモード
+  cpuNetT += dt;
+  if (cpuNetT > 0.9) {
+    const netD = Math.hypot(bot.x - cpuNetX, bot.y - cpuNetY);
+    if (netD < 30 && cpuRampageT <= 0) {
+      strafeDir *= -1;
+      cpuRampageT = 0.9 + Math.random() * 0.6;
+      cpuJerkT = 0;
+    }
+    cpuNetT = 0; cpuNetX = bot.x; cpuNetY = bot.y;
+  }
+  // ===== 層3: エイム(弾速の違いも織り込んだ偏差撃ち)と射撃規律 =====
+  const sol = leadSolve(me.x-bot.x, me.y-bot.y, meVX, meVY, bot.r >= ULT_R ? BSPEED*0.8 : BSPEED);
   const tx = sol !== null ? me.x + meVX*sol : me.x;
   const ty = sol !== null ? me.y + meVY*sol : me.y;
   bot.a = Math.atan2(ty-bot.y, tx-bot.x);
   cpuCd -= dt*1000;
-  if (cpuCd <= 0 && losClear(bot.x, bot.y, tx, ty)) {
+  // 撃つのは3つの場合だけ:
+  //  A) だっしゅつ: 本当に動けない状態が0.5秒続いた → 投げて痩せる
+  //  B) しとめる: チャージ完了+射程内(偏差解1.4秒以内・560px以内)
+  //  C) 反射: 至近距離(0.3秒以内)のほぼ確実に当たる弾のみ
+  const fireEscape = cpuHardStuckT > 0.5;
+  const fireUlt = bot.r >= ULT_R && sol !== null && sol < 1.4 && dMe < 560;
+  const fireReflex = bot.r < ULT_R && sol !== null && sol < 0.3 && losClear(bot.x, bot.y, tx, ty);
+  if (cpuCd <= 0 && (fireEscape || fireUlt || fireReflex)) {
     cpuCd = CPU_COOLDOWN;
     bot.invUntil = 0; // 投げたら無敵終了
     const bid = CPU_ID + '-' + (cpuSeq++);
-    const ballR = BR * bot.r / PR;
+    const isUlt = bot.r >= ULT_R; // CPUもチャージしたら最強雪玉(貫通するので射線不問)
+    const ballR = isUlt ? bot.r * 0.55 : BR * bot.r / PR;
+    const spd = isUlt ? BSPEED * 0.8 : BSPEED;
     const bx = bot.x + Math.cos(bot.a)*(bot.r+ballR+2), by = bot.y + Math.sin(bot.a)*(bot.r+ballR+2);
-    balls.set(bid, {owner:CPU_ID, x:bx, y:by, vx:Math.cos(bot.a)*BSPEED, vy:Math.sin(bot.a)*BSPEED, r:ballR, dist:0});
-    bot.r = Math.max(DEATH_R + 0.7, bot.r - ballR * THROW_COST); // CPUも体から雪を削る
-    pSnow(bx, by, 4, 70, 1.6);
+    balls.set(bid, {owner:CPU_ID, x:bx, y:by, vx:Math.cos(bot.a)*spd, vy:Math.sin(bot.a)*spd, r:ballR, dist:isUlt ? -BRANGE*0.6 : 0, ult:isUlt});
+    if (isUlt) {
+      bot.r = PR;
+      addShake(7); pRing(bx, by, ballR); pRing(bx, by, ballR * 0.5, '#e07a5f'); pSnow(bx, by, 26, 260, 3.4);
+    } else {
+      bot.r = Math.max(DEATH_R + 0.7, bot.r - ballR * THROW_COST); // CPUも体から雪を削る
+      pSnow(bx, by, 4, 70, 1.6);
+      sfx.throw();
+    }
   }
+  // CPUのアイテム取得(1人プレイなので通信不要)
+  items.forEach((it, iid) => {
+    if ((it.x - bot.x)**2 + (it.y - bot.y)**2 < (bot.r + 16)**2) takeItem(iid, bot);
+  });
   // 4) 自分の雪玉がCPUに当たったか
   balls.forEach((b, bid) => {
     if (b.owner === CPU_ID) return;
     if (performance.now() < (bot.invUntil || 0)) return; // 無敵中
     if ((b.grace || 0) <= 0 && (b.x-bot.x)**2 + (b.y-bot.y)**2 < (bot.r+b.r)**2) {
-      explodeBall(bid, b, 'player');
-      balls.delete(bid);
-      bot.r -= b.r * SHRINK * Math.sqrt(bot.r / PR); // CPUもでかいほど大きく削れる
+      if (b.ult) {
+        pSnow(b.x, b.y, 14, 260, 3); // 一撃必殺・貫通(弾は消えない)
+        bot.r = 0;
+      } else {
+        explodeBall(bid, b, 'player');
+        balls.delete(bid);
+        bot.r -= b.r * SHRINK * Math.sqrt(bot.r / PR); // CPUもでかいほど大きく削れる
+        sfx.hit();
+      }
       if (bot.r <= DEATH_R) {
         deathBurst(bot.x, bot.y, bot.dr || bot.r, bot.color);
         addShake(7);
@@ -806,11 +1061,27 @@ function updateCpu(dt) {
         bot.x = bot.tx = sp.x; bot.y = bot.ty = sp.y; bot.r = PR; bot.dr = 2;
         bot.invUntil = performance.now() + INV_MS; // CPUもリスポーン無敵
         me.score++;
+        sfx.kill();
         toast('❄ CPU をたおした!');
         updateScores();
       }
     }
   });
+}
+
+// 自分がやられたときの共通処理
+function killMe(by) {
+  deathBurst(me.x, me.y, me.dr, me.color);
+  addShake(12);
+  sfx.die();
+  const sp = randomSpawn();
+  me.x = sp.x; me.y = sp.y; me.r = PR; me.dr = 2; // リスポーンで元のサイズに
+  me.invUntil = performance.now() + INV_MS; // リスポーン無敵(投げたら終了)
+  emit({t:'die', id:me.id, by, x:Math.round(sp.x), y:Math.round(sp.y)});
+  const killer = players.get(by);
+  if (killer) killer.score++;
+  toast(`❄ ${killer ? killer.name : '?'} にやられた!`);
+  updateScores();
 }
 
 // ================== 更新 ==================
@@ -825,7 +1096,49 @@ function update(now) {
     if (d.y > H) { d.y = -4; d.x = Math.random()*W; }
   });
 
+  // パーティクル更新(リザルト中も動かす)
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.life += dt;
+    if (p.type === 'dot') {
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.vx *= (1 - 3*dt); p.vy *= (1 - 3*dt);
+      p.vy += 60 * dt; // ふわっと落ちる
+    }
+    if (p.life >= p.max) parts.splice(i, 1);
+  }
+  // 足あとは時間で消える
+  for (let i = fprints.length - 1; i >= 0; i--) {
+    fprints[i].life += dt;
+    if (fprints[i].life >= fprints[i].max) fprints.splice(i, 1);
+  }
+
   if (!playing) return;
+
+  // ラウンド終了中: 紙吹雪だけ降らせてカウントダウン
+  if (roundEndT > 0) {
+    roundEndT -= dt;
+    if (Math.random() < 0.25) {
+      parts.push({type:'dot', x: Math.random()*W, y: -8, vx:(Math.random()-0.5)*50, vy: 100+Math.random()*90,
+                  life:0, max:3.5, s:3+Math.random()*3, c: COLORS[Math.floor(Math.random()*COLORS.length)]});
+    }
+    if (roundEndT <= 0) resetRound();
+    return;
+  }
+
+  // アイテム出現(ホストが管理して配信)
+  if (isHost) {
+    itemTimer -= dt;
+    if (itemTimer <= 0 && items.size < 3) {
+      itemTimer = 9 + Math.random() * 7;
+      const iid = 'it-' + Math.random().toString(36).slice(2, 8);
+      const sp = randomSpawn();
+      const kind = 'snow';
+      items.set(iid, {kind, x: sp.x, y: sp.y});
+      emit({t:'item', iid, kind, x: Math.round(sp.x), y: Math.round(sp.y)});
+    }
+  }
+
   const pmx = me.x, pmy = me.y;
 
   let mvx = 0, mvy = 0;
@@ -851,15 +1164,39 @@ function update(now) {
   if (dt > 0.001) { meVX = (me.x - pmx) / dt; meVY = (me.y - pmy) / dt; }
   // 動くほど無制限に巨大化(でかい=当たりやすいが、弾もでかくなる)
   me.r += Math.hypot(me.x - pmx, me.y - pmy) * GROW;
+  // 最強雪玉のチャージ完了(通知なし・演出のみ)
+  if (me.r >= ULT_R && !meCharged) {
+    meCharged = true;
+    addShake(6);
+    pRing(me.x, me.y, me.dr, '#e07a5f');
+    pSnow(me.x, me.y, 16, 220, 3, '#e8b64c');
+    sfx.charge();
+  } else if (me.r < ULT_R) meCharged = false;
+  // 自分の足あと
+  mePrintD += Math.hypot(me.x - pmx, me.y - pmy);
+  if (mePrintD > (me.dr || PR) * 1.1) { mePrintD = 0; addPrint(me); }
+  // アイテム取得(自分)
+  items.forEach((it, iid) => {
+    if ((it.x - me.x)**2 + (it.y - me.y)**2 < (me.r + 16)**2) {
+      takeItem(iid, me);
+      emit({t:'take', iid, id: me.id});
+    }
+  });
   if (cpuActive) updateCpu(dt);
 
   me.dr += (me.r - me.dr) * 0.2; // 表示サイズはなめらかに追従
   players.forEach(p => {
     if (p.dr === undefined) p.dr = p.r;
     p.dr += (p.r - p.dr) * 0.2;
-    if (p.cpu) return; // CPUはローカル制御なので補間しない
-    p.x += (p.tx - p.x) * 0.35;
-    p.y += (p.ty - p.y) * 0.35;
+    if (!p.cpu) { // CPUはローカル制御なので補間しない
+      p.x += (p.tx - p.x) * 0.35;
+      p.y += (p.ty - p.y) * 0.35;
+    }
+    // 他プレイヤー・CPUの足あと
+    const lx = p._lx ?? p.x, ly = p._ly ?? p.y;
+    p._pd = (p._pd || 0) + Math.hypot(p.x - lx, p.y - ly);
+    p._lx = p.x; p._ly = p.y;
+    if (p._pd > (p.dr || PR) * 1.1) { p._pd = 0; addPrint(p); }
   });
 
   const dead = [];
@@ -868,27 +1205,25 @@ function update(now) {
     b.x += b.vx * dt; b.y += b.vy * dt; b.dist += step;
     if (b.grace > 0) b.grace -= step;
     if (b.dist > BRANGE) { explodeBall(bid, b, 'range'); dead.push(bid); return; }
-    if (b.x < 0 || b.x > W || b.y < 0 || b.y > H || collideObst(b.x, b.y, b.r)) {
-      explodeBall(bid, b, 'solid'); dead.push(bid); return;
+    if (b.x < 0 || b.x > W || b.y < 0 || b.y > H || (!b.ult && collideObst(b.x, b.y, b.r))) {
+      explodeBall(bid, b, 'solid'); dead.push(bid); return; // 最強雪玉は障害物を貫通
     }
     if (b.owner !== me.id && (b.grace || 0) <= 0 && now >= (me.invUntil || 0) && (b.x-me.x)**2 + (b.y-me.y)**2 < (me.r+b.r)**2) {
-      explodeBall(bid, b, 'player');
-      dead.push(bid);
-      me.r -= b.r * SHRINK * Math.sqrt(me.r / PR); // でかいほど大きく削れる
-      addShake(4 + b.r * 0.4);
-      if (me.r > DEATH_R) {
-        emit({t:'hit', id:me.id, bid, r:+me.r.toFixed(1), x:Math.round(b.x), y:Math.round(b.y)});
+      if (b.ult) {
+        // 最強雪玉: 一撃必殺。しかも貫通するので弾は消えない
+        pSnow(b.x, b.y, 14, 260, 3);
+        killMe(b.owner);
       } else {
-        deathBurst(me.x, me.y, me.dr, me.color);
-        addShake(12);
-        const sp = randomSpawn();
-        me.x = sp.x; me.y = sp.y; me.r = PR; me.dr = 2; // リスポーンで元のサイズに
-        me.invUntil = performance.now() + INV_MS; // リスポーン無敵(投げたら終了)
-        emit({t:'die', id:me.id, by:b.owner, x:Math.round(sp.x), y:Math.round(sp.y)});
-        const killer = players.get(b.owner);
-        if (killer) killer.score++;
-        toast(`❄ ${killer ? killer.name : '?'} にやられた!`);
-        updateScores();
+        explodeBall(bid, b, 'player');
+        dead.push(bid);
+        me.r -= b.r * SHRINK * Math.sqrt(me.r / PR); // でかいほど大きく削れる
+        addShake(4 + b.r * 0.4);
+        if (me.r > DEATH_R) {
+          sfx.hit();
+          emit({t:'hit', id:me.id, bid, r:+me.r.toFixed(1), x:Math.round(b.x), y:Math.round(b.y)});
+        } else {
+          killMe(b.owner);
+        }
       }
     }
   });
@@ -898,27 +1233,16 @@ function update(now) {
     pendingBalls.forEach(([bid, b]) => balls.set(bid, b));
     pendingBalls.length = 0;
   }
-  // パーティクル更新
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const p = parts[i];
-    p.life += dt;
-    if (p.type === 'dot') {
-      p.x += p.vx * dt; p.y += p.vy * dt;
-      p.vx *= (1 - 3*dt); p.vy *= (1 - 3*dt);
-      p.vy += 60 * dt; // ふわっと落ちる
-    }
-    if (p.life >= p.max) parts.splice(i, 1);
-  }
 }
 
 // ================== 描画 ==================
 // 降る雪(鉛筆の点々)
-const snowDots = Array.from({length:60}, () => ({
+const snowDots = Array.from({length:110}, () => ({
   x: Math.random()*W, y: Math.random()*H,
   r: Math.random()*1.5+0.6, v: 8+Math.random()*14, p: Math.random()*7
 }));
 // 地面の斜線ハッチング(固定らくがき)
-const hatches = Array.from({length:26}, (_, i) => ({
+const hatches = Array.from({length:48}, (_, i) => ({
   x: (i*137 + 60) % (W-80) + 30, y: (i*211 + 90) % (H-60) + 20, len: 14+((i*53)%18)
 }));
 
@@ -935,6 +1259,16 @@ function draw() {
   ctx.globalAlpha = 0.16;
   hatches.forEach((hh, i) => {
     sketchStroke(s => wobblyLine(hh.x, hh.y, hh.x+hh.len, hh.y-5, seedOf('h'+i)+s, 1), PENCIL, 1.6);
+  });
+  ctx.globalAlpha = 1;
+
+  // 足あと(通った跡が数秒残る)
+  fprints.forEach(f => {
+    ctx.globalAlpha = (1 - f.life / f.max) * 0.2;
+    ctx.fillStyle = '#8fb4d8';
+    ctx.beginPath();
+    ctx.ellipse(f.x, f.y, f.r, f.r * 0.45, 0, 0, 7);
+    ctx.fill();
   });
   ctx.globalAlpha = 1;
 
@@ -956,7 +1290,14 @@ function draw() {
   });
 
   // 障害物
-  OBST.forEach((o, i) => o.type === 'tree' ? drawTree(o, i) : drawWall(o, i));
+  OBST.forEach((o, i) => {
+    if (o.type === 'tree') drawTree(o, i);
+    else if (o.type === 'rock') drawRock(o, i);
+    else drawWall(o, i);
+  });
+
+  // アイテム
+  items.forEach((it, iid) => drawItem(it, iid));
 
   // 雪玉
   balls.forEach((b, bid) => {
@@ -968,6 +1309,33 @@ function draw() {
     wobblyCirclePath(b.x, b.y, b.r, seedOf(bid), 0.16);
     ctx.fill();
     sketchStroke(s => wobblyCirclePath(b.x, b.y, b.r, seedOf(bid)+s, 0.16), INK, 1.6);
+    if (b.ult) { // 最強雪玉: 派手に
+      const tnow = performance.now();
+      // 残像
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = '#ffffff';
+      wobblyCirclePath(b.x - b.vx*0.045, b.y - b.vy*0.045, b.r*0.85, seedOf(bid+'g'), 0.15);
+      ctx.fill();
+      // 三重の脈打つオーラ
+      for (let q = 0; q < 3; q++) {
+        ctx.globalAlpha = (0.6 - q*0.15) + 0.25 * Math.sin(tnow/60 + q*1.3);
+        sketchStroke(s => wobblyCirclePath(b.x, b.y, b.r + 7 + q*9, seedOf(bid+'u'+q)+s, 0.14), q === 1 ? '#e8b64c' : '#e07a5f', 3 - q*0.6);
+      }
+      ctx.globalAlpha = 1;
+      // 高速で周回するスパーク
+      for (let q = 0; q < 4; q++) {
+        const a = tnow/110 + q * Math.PI / 2;
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = q % 2 ? '#e8b64c' : '#e07a5f';
+        ctx.beginPath();
+        ctx.arc(b.x + Math.cos(a)*(b.r + 15), b.y + Math.sin(a)*(b.r + 15), 3.6, 0, 7);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      // 濃い雪の尾
+      pSnow(b.x - b.vx*0.02, b.y - b.vy*0.02, 2, 90, 3);
+      if (Math.random() < 0.7) pSnow(b.x - b.vx*0.06, b.y - b.vy*0.06, 1, 60, 2.2, '#e8b64c');
+    }
   });
 
   // プレイヤー(ゆきだるま)
@@ -1006,9 +1374,38 @@ function draw() {
     sketchStroke(s => wobblyCirclePath(joyBase.x + joyVec.x*JOY_R, joyBase.y + joyVec.y*JOY_R, 17, seedOf('knob')+s, 0.1), INK, 2.2);
     ctx.globalAlpha = 1;
   }
+
+  // リザルト画面(3ポイント先取)
+  if (roundEndT > 0 && roundWinner) {
+    ctx.fillStyle = 'rgba(250,244,228,.6)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = roundWinner.color;
+    ctx.font = "bold 66px 'Yomogi', sans-serif";
+    ctx.globalAlpha = 0.3;
+    ctx.fillText(`🏆 ${roundWinner.name} のかち!`, W/2 + 4, H/2 - 26);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = INK;
+    ctx.font = "bold 64px 'Yomogi', sans-serif";
+    ctx.fillText(`🏆 ${roundWinner.name} のかち!`, W/2, H/2 - 30);
+    ctx.font = "30px 'Yomogi', sans-serif";
+    ctx.fillText(`つぎのラウンドまで ${Math.max(1, Math.ceil(roundEndT))}`, W/2, H/2 + 44);
+  }
   ctx.restore(); // 画面揺れ解除
 
   requestAnimationFrame(t => { update(t); draw(); });
+}
+
+// アイテムのらくがき
+function drawItem(it, iid) {
+  const bob = Math.sin(performance.now()/300 + hashStr(iid) % 7) * 3;
+  const y = it.y + bob;
+  // 大雪玉(+10サイズ)
+  ctx.fillStyle = '#ffffff';
+  wobblyCirclePath(it.x, y, 13, seedOf(iid), 0.12); ctx.fill();
+  sketchStroke(s => wobblyCirclePath(it.x, y, 13, seedOf(iid)+s, 0.12), INK, 2);
+  sketchStroke(s => wobblyLine(it.x-5, y, it.x+5, y, seedOf(iid+'p')+s, 0.5), '#e07a5f', 2.2);
+  sketchStroke(s => wobblyLine(it.x, y-5, it.x, y+5, seedOf(iid+'q')+s, 0.5), '#e07a5f', 2.2);
 }
 
 // 雪のかべ
@@ -1031,6 +1428,37 @@ function drawWall(o, i) {
     }
   }
   ctx.globalAlpha = 1;
+}
+
+// 岩のらくがき(ごつごつブロブ+ひび+雪の帽子)
+function drawRock(o, i) {
+  const rockPath = s => {
+    ctx.save();
+    ctx.translate(o.x + o.w/2, o.y + o.h/2);
+    ctx.scale(o.w / o.h, 1);
+    wobblyCirclePath(0, 0, o.h/2, seedOf('rk'+i)+s, 0.13);
+    ctx.restore();
+  };
+  ctx.fillStyle = '#cfc9bb';
+  rockPath(0); ctx.fill();
+  sketchStroke(rockPath, INK, 2.4);
+  // ひび割れ
+  const cx = o.x + o.w/2, cy = o.y + o.h/2;
+  ctx.globalAlpha = 0.45;
+  sketchStroke(s => wobblyLine(cx - o.w*0.22, cy + o.h*0.05, cx + o.w*0.05, cy + o.h*0.3, seedOf('rc'+i)+s, 1.2), INK, 1.4);
+  sketchStroke(s => wobblyLine(cx + o.w*0.1, cy - o.h*0.25, cx + o.w*0.28, cy + o.h*0.05, seedOf('rc2'+i)+s, 1.2), INK, 1.4);
+  ctx.globalAlpha = 1;
+  // 上に積もった雪
+  ctx.fillStyle = '#ffffff';
+  const snowPath = s => {
+    ctx.save();
+    ctx.translate(cx, o.y + o.h*0.18);
+    ctx.scale(o.w / o.h * 0.8, 0.5);
+    wobblyCirclePath(0, 0, o.h*0.26, seedOf('rs'+i)+s, 0.18);
+    ctx.restore();
+  };
+  snowPath(0); ctx.fill();
+  sketchStroke(snowPath, INK, 1.5);
 }
 
 // もみの木のらくがき
@@ -1133,6 +1561,38 @@ function drawSnowman(p, self) {
   // 名前(体力=サイズなのでハート表示は廃止)
   ctx.fillStyle = INK; ctx.font = "14px 'Yomogi', sans-serif"; ctx.textAlign = 'center';
   ctx.fillText(p.name, p.x, p.y - rr - 8);
+  // チャージ完了(最強雪玉スタンバイ): 全力の目立ち演出
+  if ((p.r || 0) >= ULT_R) {
+    const tnow = performance.now();
+    // 本体がほんのり発光
+    ctx.globalAlpha = 0.35 + 0.2 * Math.sin(tnow / 90);
+    ctx.strokeStyle = '#e07a5f'; ctx.lineWidth = 6;
+    wobblyCirclePath(p.x, p.y, rr + 3, seed + 77, 0.06);
+    ctx.stroke();
+    // 逆回転する二重オーラリング
+    for (let q = 0; q < 2; q++) {
+      ctx.globalAlpha = 0.55 + 0.3 * Math.sin(tnow / (90 + q*50));
+      ctx.setLineDash([13, 9]);
+      ctx.lineDashOffset = (tnow / (7 + q*5)) * (q ? -1 : 1);
+      ctx.strokeStyle = q ? '#e8b64c' : '#e07a5f';
+      ctx.lineWidth = 3.5 - q;
+      wobblyCirclePath(p.x, p.y, rr + 13 + q*12, seed + 55 + q, 0.05);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]); ctx.lineDashOffset = 0;
+    // まわりを周回する火花
+    for (let q = 0; q < 4; q++) {
+      const a = tnow / 260 + q * Math.PI / 2;
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = q % 2 ? '#e8b64c' : '#e07a5f';
+      ctx.beginPath();
+      ctx.arc(p.x + Math.cos(a)*(rr + 23), p.y + Math.sin(a)*(rr + 23), 3.4, 0, 7);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // 金色の雪がこぼれる
+    if (Math.random() < 0.25) pSnow(p.x + (Math.random()-0.5)*rr*1.6, p.y + (Math.random()-0.5)*rr*1.6, 1, 45, 2.4, '#e8b64c');
+  }
   // 無敵バリア(点線サークル)
   if (inv) {
     ctx.globalAlpha = 0.8;
@@ -1152,6 +1612,16 @@ function updateScores() {
   $('scores').innerHTML = all.map((p, i) =>
     `<span class="score sketchy">${i===0 && p.score>0 ? '👑 ' : ''}<span class="dot" style="background:${p.color}"></span>${escapeHtml(p.name)}: <b>${p.score}</b></span>`
   ).join('');
+  // 人数表示
+  if (playing) {
+    const n = humanCount() + 1;
+    $('pcount').textContent = cpuActive ? `${n}人+CPU` : `${n}人プレイ中`;
+  }
+  // 3ポイント先取で勝ち
+  if (playing && roundEndT <= 0) {
+    const w = all.find(p => p.score >= WIN_SCORE);
+    if (w) startRoundEnd(w);
+  }
 }
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
