@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://yukigassen.vercel.app/sitemap.xml

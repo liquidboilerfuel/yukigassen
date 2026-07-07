@@ -3,14 +3,35 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ゆきがっせん.io — オンライン雪合戦</title>
-<meta name="description" content="ブラウザで遊べるらくがき風オンライン雪合戦。サーバー不要・無料。部屋コードを共有して友達と対戦!">
-<meta property="og:title" content="ゆきがっせん.io ❄ オンライン雪合戦">
-<meta property="og:description" content="動くとおおきくなり、当たるとちいさくなる。らくがき風オンライン雪合戦、無料!">
+<title>ゆきがっせん.io — 無料オンライン雪合戦ゲーム|ブラウザで友達とマルチプレイ対戦</title>
+<meta name="description" content="ゆきがっせん.ioはブラウザですぐ遊べる無料のオンライン雪合戦ゲーム。インストール・登録不要、部屋コードを共有するだけで友達とマルチプレイ対戦。スマホ対応。動くと巨大化、雪玉は自分の体から!らくがき風の手描きデザインが特徴のio系ゲームです。1人でも強いCPUと対戦できます。">
+<meta name="keywords" content="雪合戦,ゲーム,無料,ブラウザゲーム,オンライン対戦,マルチプレイ,io系ゲーム,スマホゲーム,雪玉,対戦ゲーム,登録不要">
+<link rel="canonical" href="https://yukigassen.vercel.app/">
+<meta property="og:title" content="ゆきがっせん.io ❄ 無料オンライン雪合戦ゲーム">
+<meta property="og:description" content="動くとおおきくなり、当たるとちいさくなる。部屋コードを共有して友達と対戦!らくがき風オンライン雪合戦、無料・登録不要。">
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="ゆきがっせん.io">
 <meta property="og:url" content="https://yukigassen.vercel.app/">
 <meta property="og:image" content="https://yukigassen.vercel.app/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ゆきがっせん.io ❄ 無料オンライン雪合戦ゲーム">
+<meta name="twitter:description" content="ブラウザですぐ遊べる、らくがき風オンライン雪合戦。無料・登録不要・スマホ対応。">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "VideoGame",
+  "name": "ゆきがっせん.io",
+  "url": "https://yukigassen.vercel.app/",
+  "image": "https://yukigassen.vercel.app/og-image.png",
+  "description": "ブラウザで遊べる無料のオンライン雪合戦ゲーム。部屋コードを共有して友達とマルチプレイ対戦。動くと巨大化し、雪玉は自分の体から作るユニークなルール。",
+  "genre": ["アクション", "対戦", "io系ゲーム"],
+  "gamePlatform": ["Web Browser", "PC", "Mobile"],
+  "playMode": ["MultiPlayer", "SinglePlayer"],
+  "applicationCategory": "Game",
+  "inLanguage": "ja",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "JPY" }
+}
+</script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛄</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -76,6 +97,11 @@
   .btn:active { transform:translate(2px,3px); box-shadow:none; }
   .btn.green { background:#dcefdd; }
   .btn.green:hover { background:#c8e6ca; }
+  .btn .sub {
+    display:block; font-size:11px; font-weight:normal;
+    color:#8a8262; margin-top:1px; letter-spacing:1px;
+  }
+  .matchbtn { width:250px; padding:8px 0 7px; }
 
   /* ====== ロビー(メモ用紙) ====== */
   #lobby {
@@ -161,6 +187,13 @@
   }
   @keyframes fade { 0%{opacity:0; transform:translateY(-6px) rotate(-.8deg)} 10%{opacity:1; transform:translateY(0) rotate(-.8deg)} 80%{opacity:1} 100%{opacity:0} }
   #controls { color:#a39a83; font-size:13px; margin:10px 0 18px; transform:rotate(-.4deg); }
+  /* ====== 検索エンジン向けの紹介テキスト ====== */
+  #about {
+    width:min(92vw, 760px); margin:6px auto 40px; padding:20px 26px;
+    color:#847c66; font-size:14px; line-height:1.9;
+  }
+  #about h2 { font-size:17px; color:var(--ink); margin:18px 0 6px; }
+  #about p { margin:4px 0; }
 </style>
 </head>
 <body>
@@ -182,7 +215,9 @@
     <div id="lobbyCard">
       <div id="lobbyTitle">❄ オンライン雪合戦 ❄</div>
       <input id="nameIn" placeholder="ニックネーム" maxlength="10">
-      <button class="btn green" id="createBtn">部屋を作る</button>
+      <button class="btn green matchbtn" id="duelBtn">けっとう!<span class="sub">1vs1で真剣勝負</span></button>
+      <button class="btn green matchbtn" id="casualBtn">らんせん!<span class="sub">みんなでわいわい(〜6人)</span></button>
+      <button class="btn" id="createBtn">友達と部屋を作る</button>
       <div class="hint">— または —</div>
       <div class="row">
         <input id="codeIn" placeholder="部屋コード" maxlength="4" style="width:130px">
@@ -194,6 +229,15 @@
   </div>
 </div>
 <div id="controls">PC 移動: WASD / 雪玉: クリック ・ スマホ 移動: 画面左ドラッグ / 雪玉: 右側タップ ・ 動くとおおきくなり、当たるか発射でちいさくなる。ちいさくなりすぎたらやられる。おおきい雪玉は3つに分裂。とてもおおきくなると一撃必殺雪玉!</div>
+
+<section id="about" class="sketchy">
+  <h2>ゆきがっせん.io とは?</h2>
+  <p>ブラウザだけで遊べる<strong>無料のオンライン雪合戦ゲーム</strong>です。インストールも会員登録も不要。「部屋を作る」を押して4文字の部屋コード(または招待リンク)を友達に送るだけで、すぐに<strong>マルチプレイ対戦</strong>が始まります。PCでもスマホでも遊べて、1人のときは強いCPUが相手をしてくれます。</p>
+  <h2>ゲームのルール</h2>
+  <p>動き回るほど雪だるまの体が<strong>どんどん巨大化</strong>し、投げる雪玉も大きく強くなります。ただし雪玉は自分の体の雪から作るので、投げるたびに少し縮み、相手の雪玉に当たっても縮みます。小さくなりすぎたらやられ! 大きな雪玉は着弾すると3方向に分裂し、体がとても大きくなると一撃必殺・障害物貫通の「最強雪玉」を放てます。3ポイント先取でラウンド勝利。</p>
+  <h2>特徴</h2>
+  <p>らくがき帳に描いたような手描き風デザイン、線がプルプル揺れるアニメーション、効果音つき。サーバーを介さないP2P通信(WebRTC)なので低遅延で、完全無料で運営されています。2〜6人でのプレイがおすすめです。</p>
+</section>
 
 <script>
 'use strict';
@@ -213,7 +257,10 @@ const ULT_R = 90;       // この半径以上でチャージ完了: 次の一投
 const COOLDOWN = 420;   // 投擲間隔 ms
 const INV_MS = 3000;    // 参加直後の無敵時間 ms(投げたら即終了)
 const SENDRATE = 50;    // 状態送信間隔 ms
-const PREFIX = 'yukigassen-io-v3-'; // 通信仕様を変えたらここを上げる(旧バージョンと同室になるのを防ぐ)
+const PREFIX = 'yukigassen-io-v4-'; // 通信仕様を変えたらここを上げる(旧バージョンと同室になるのを防ぐ)
+const PUB_ROOMS = 100;  // 公開マッチの部屋枠数(モードごとにG000〜G099 / C000〜C099)
+const PROBE_WAVE = 10;  // 部屋さがしの同時問い合わせ数
+const MAX_GUESTS = 5;   // カジュアル部屋の最大ゲスト数(ホスト含め6人)。ガチ(G0xx)は1対1
 const WIN_SCORE = 3;    // 先取ポイント(ラウンド制)
 const INK = '#3d405b';
 const PENCIL = '#89b8d8';
@@ -439,6 +486,10 @@ function handle(msg) {
       updateScores();
       break;
     }
+    case 'full': {
+      status('その部屋は満員です');
+      break;
+    }
     case 'leave': {
       const p = players.get(msg.id);
       if (p) toast(`${p.name} がかえっちゃった…`);
@@ -471,6 +522,12 @@ function createRoom() {
 function setupHostConn(conn) {
   conn.on('data', msg => {
     if (msg.t === 'hello') {
+      const cap = roomCode.startsWith('G0') ? 1 : MAX_GUESTS; // ガチ部屋は1対1
+      if (humanCount() >= cap) { // 満員
+        conn.send({t:'full'});
+        setTimeout(() => { try { conn.close(); } catch (e) {} }, 150);
+        return;
+      }
       // CPU戦 → 対人戦になる瞬間だけスコアをリセット
       if (cpuActive) { deactivateCpu(); me.score = 0; }
       conn.playerId = msg.id;
@@ -565,9 +622,96 @@ function joinRoom() {
   });
 }
 
+// ================== ランダムマッチング(サーバーレス) ==================
+// 公開部屋はモードごとに50枠(ガチ=G000〜G049 / カジュアル=C000〜C049)。
+// 10部屋ずつ並列に問い合わせ、入れる部屋があれば参加。なければ空き枠を取って待つ。
+// 友達部屋のコードは0と1を含まないランダム4文字なので、公開コード(必ず0を含む)とは絶対に被らない。
+let matching = false, matchConn = null, standbyRooms = [];
+function pubCode(mode, i) { return (mode === 'duel' ? 'G0' : 'C0') + String(i).padStart(2, '0'); }
+function randomMatch(mode) {
+  if (matching || playing) return;
+  audio();
+  matching = true; matchConn = null; standbyRooms.length = 0;
+  status('あそべる部屋をさがしています…');
+  const name = ($('nameIn').value.trim() || 'プレイヤー').slice(0,10);
+  peer = new Peer({debug:1});
+  peer.on('open', myId => {
+    me = makeMe(myId, name);
+    probeWave(mode, 0);
+  });
+  peer.on('error', e => {
+    if (matching && e.type === 'peer-unavailable') return; // 空き枠。波のタイマーが前進を管理
+    if (migrating && e.type === 'peer-unavailable') { setTimeout(rejoinNewHost, 1500); return; }
+    if (!matching) status('エラー: ' + e.type);
+  });
+}
+function adoptRoom(c, code) {
+  if (!matching) { try { c.close(); } catch (e) {} return; }
+  if (matchConn) { standbyRooms.push({c, code}); return; } // 補欠として保持(採用先が満員だったとき用)
+  matchConn = c;
+  roomCode = code;
+  hostConn = c;
+  c.on('close', onHostLost);
+  c.send({t:'hello', id: me.id,
+    p:{id:me.id, name:me.name, color:me.color, x:me.x, y:me.y, a:me.a, r:me.r, score:me.score}});
+}
+function probeWave(mode, start) {
+  if (!matching || matchConn) return;
+  if (start >= PUB_ROOMS) { hostPublic(mode); return; }
+  const end = Math.min(start + PROBE_WAVE, PUB_ROOMS);
+  status(`部屋をさがしています… (${end}/${PUB_ROOMS})`);
+  for (let i = start; i < end; i++) {
+    const code = pubCode(mode, i);
+    const c = peer.connect(PREFIX + code, {reliable:true});
+    c.on('open', () => adoptRoom(c, code));
+    c.on('data', msg => {
+      if (msg.t === 'full') { // 満員だった → 採用を取り消して補欠から昇格
+        try { c.close(); } catch (e) {}
+        if (matchConn === c) {
+          matchConn = null; hostConn = null;
+          const nb = standbyRooms.shift();
+          if (nb) adoptRoom(nb.c, nb.code);
+        }
+      } else if (matchConn === c) {
+        handle(msg);
+      }
+    });
+  }
+  // この波で入れなければ次の10部屋へ
+  setTimeout(() => { if (matching && !matchConn) probeWave(mode, end); }, 1600);
+}
+function hostPublic(mode, tries = 0) {
+  if (!matching) return;
+  if (tries > 8) { matching = false; createRoom(); return; } // 保険
+  // 若い番号の枠を優先して立てる(部屋が低番号に集まる=探す側が第1波で見つけやすい)。
+  // 枠が取られていたら徐々に範囲を広げて再抽選
+  const range = Math.min(PUB_ROOMS, 10 * (tries + 1));
+  const code = pubCode(mode, Math.floor(Math.random() * range));
+  status('公開部屋を作ってまっています…');
+  try { peer.destroy(); } catch (e) {}
+  conns.clear();
+  peer = new Peer(PREFIX + code, {debug:1});
+  peer.on('open', id => {
+    isHost = true;
+    me.id = id;
+    roomCode = code;
+    matching = false;
+    startGame();
+  });
+  peer.on('connection', setupHostConn);
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id') hostPublic(mode, tries + 1); // 枠が取られていた → 別の枠へ
+  });
+}
+$('duelBtn').onclick = () => randomMatch('duel');
+$('casualBtn').onclick = () => randomMatch('casual');
+
 // ================== ゲーム開始 ==================
 function startGame() {
   playing = true;
+  matching = false;
+  standbyRooms.forEach(s => { try { s.c.close(); } catch (e) {} }); // 補欠接続を後始末
+  standbyRooms.length = 0;
   me.invUntil = performance.now() + INV_MS; // 参加直後は無敵
   $('lobby').style.display = 'none';
   $('hud').style.display = 'flex';
