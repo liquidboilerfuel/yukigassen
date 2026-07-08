@@ -649,7 +649,12 @@ function randomMatch(mode) {
   peer.on('error', e => {
     if (matching && e.type === 'peer-unavailable') return; // 空き枠。波のタイマーが前進を管理
     if (migrating && e.type === 'peer-unavailable') { setTimeout(rejoinNewHost, 1500); return; }
-    if (!matching) status('エラー: ' + e.type);
+    if (matching) { // 致命的エラーで固まらないように
+      matching = false;
+      status('つうしんエラーが起きました。もういちど押してみてね');
+      return;
+    }
+    status('エラー: ' + e.type);
   });
 }
 function adoptRoom(c, code) {
@@ -664,7 +669,12 @@ function adoptRoom(c, code) {
 }
 function probeWave(mode, start) {
   if (!matching || matchConn) return;
-  if (start >= PUB_ROOMS) { hostPublic(mode); return; }
+  if (start >= PUB_ROOMS) {
+    // WebRTCの開通には数秒かかることがある。開通途中の接続を待ってからホスト化
+    status('さいしゅうかくにん中…');
+    setTimeout(() => { if (matching && !matchConn) hostPublic(mode); }, 2500);
+    return;
+  }
   const end = Math.min(start + PROBE_WAVE, PUB_ROOMS);
   status(`部屋をさがしています… (${end}/${PUB_ROOMS})`);
   for (let i = start; i < end; i++) {
@@ -693,7 +703,8 @@ function hostPublic(mode, tries = 0) {
   // 若い番号の枠を優先して立てる(部屋が低番号に集まる=探す側が第1波で見つけやすい)。
   // 枠が取られていたら徐々に範囲を広げて再抽選
   const range = Math.min(PUB_ROOMS, 10 * (tries + 1));
-  const code = pubCode(mode, Math.floor(Math.random() * range));
+  const idx = Math.floor(Math.random() * range);
+  const code = pubCode(mode, idx);
   status('公開部屋を作ってまっています…');
   try { peer.destroy(); } catch (e) {}
   conns.clear();
@@ -704,10 +715,68 @@ function hostPublic(mode, tries = 0) {
     roomCode = code;
     matching = false;
     startGame();
+    startHostMerge(mode, idx); // 同時押しで部屋が分裂したときの合流係
   });
   peer.on('connection', setupHostConn);
   peer.on('error', e => {
     if (e.type === 'unavailable-id') hostPublic(mode, tries + 1); // 枠が取られていた → 別の枠へ
+  });
+}
+
+// ---- 部屋の分裂対策: ひとりで待っている公開ホストは、自分より若い番号の部屋を
+// ---- 定期偵察して、見つけたら自分の部屋をたたんで合流する(若い方に集まるので相打ちしない)
+let mergeTimer = null, merging = false;
+function stopHostMerge() { if (mergeTimer) { clearInterval(mergeTimer); mergeTimer = null; } }
+function startHostMerge(mode, myIdx) {
+  stopHostMerge();
+  if (myIdx === 0) return; // 最若番は動かない(みんながここに集まる)
+  mergeTimer = setInterval(() => {
+    if (!playing || !isHost || humanCount() > 0 || merging) { if (humanCount() > 0) stopHostMerge(); return; }
+    for (let i = 0; i < myIdx; i++) {
+      const code = pubCode(mode, i);
+      const c = peer.connect(PREFIX + code, {reliable:true});
+      c.on('open', () => {
+        if (!playing || !isHost || humanCount() > 0 || merging) { try { c.close(); } catch (e) {} return; }
+        merging = true;
+        stopHostMerge();
+        try { c.close(); } catch (e) {}
+        mergeInto(code);
+      });
+    }
+  }, 7000);
+}
+function mergeInto(code) {
+  // 自分の部屋をたたみ、CPU戦の状態をリセットして相手の部屋へ入り直す
+  deactivateCpu();
+  me.score = 0;
+  const sp = randomSpawn();
+  me.x = sp.x; me.y = sp.y; me.r = PR; me.dr = 2;
+  me.invUntil = performance.now() + INV_MS;
+  balls.clear(); items.clear();
+  try { peer.destroy(); } catch (e) {}
+  conns.clear();
+  isHost = false;
+  peer = new Peer({debug:1});
+  peer.on('open', myId => {
+    me.id = myId;
+    roomCode = code;
+    renderCode();
+    hostConn = peer.connect(PREFIX + code, {reliable:true});
+    hostConn.on('open', () => {
+      merging = false;
+      toast('あいてが見つかりました!');
+      hostConn.send({t:'hello', id: me.id,
+        p:{id:me.id, name:me.name, color:me.color, x:me.x, y:me.y, a:me.a, r:me.r, score:me.score}});
+    });
+    hostConn.on('data', handle);
+    hostConn.on('close', onHostLost);
+  });
+  peer.on('error', e => {
+    if (e.type === 'peer-unavailable') { // 合流先が消えていた → 自分がまた部屋を立てる
+      merging = false;
+      matching = true;
+      hostPublic(roomCode.startsWith('G0') ? 'duel' : 'casual');
+    }
   });
 }
 $('duelBtn').onclick = () => randomMatch('duel');
