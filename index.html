@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ゆきがっせん.io — マルチプレイ雪合戦ゲーム|ブラウザでオンライン対戦</title>
 <meta name="description" content="ゆきがっせん.ioはブラウザですぐ遊べるマルチプレイ雪合戦ゲーム。インストール・登録不要、部屋コードを共有するだけで友達とマルチプレイ対戦。スマホ対応。動くと巨大化、雪玉は自分の体から!らくがき風の手描きデザインが特徴のio系ゲームです。1人でも強いCPUと対戦できます。">
-<meta name="keywords" content="雪合戦,ゲーム,無料,ブラウザゲーム,オンライン対戦,マルチプレイ,io系ゲーム,スマホゲーム,雪玉,対戦ゲーム,登録不要">
+<meta name="keywords" content="雪合戦,ゲーム,無料,ブラウザゲーム,オンライン対戦,マルチプレイ,io系ゲーム,スマホゲーム,雪玉,対戦ゲーム,登録不要,yukigassen,yukigaltusen,yukigaxtusen,io,いお,イオ">
 <link rel="canonical" href="https://yukigassen.vercel.app/">
 <meta property="og:title" content="ゆきがっせん.io マルチプレイ雪合戦ゲーム">
 <meta property="og:description" content="動くとおおきくなり、当たるとちいさくなる。部屋コードを共有して友達と対戦!マルチプレイ雪合戦、登録不要。">
@@ -24,7 +24,7 @@
   "url": "https://yukigassen.vercel.app/",
   "image": "https://yukigassen.vercel.app/og-image.png",
   "description": "ブラウザで遊べるマルチプレイ雪合戦ゲーム。部屋コードを共有して友達とオンライン対戦。動くと巨大化し、雪玉は自分の体から作る。",
-  "genre": ["アクション", "対戦", "io系ゲーム", "ブラウザゲーム", "スマホゲーム", "無料ゲーム", "登録不要", "雪合戦", "マルチプレイ", "友達と対戦"],
+  "genre": ["アクション", "対戦", "io系ゲーム", "ブラウザゲーム", "スマホゲーム", "無料ゲーム", "登録不要", "雪合戦", "yukigassen", "yukigaltusen", "yukigaxtusen", "io", "いお", "イオ", "マルチプレイ", "友達と対戦"],
   "gamePlatform": ["Web Browser", "PC", "Mobile"],
   "playMode": ["MultiPlayer", "SinglePlayer"],
   "applicationCategory": "Game",
@@ -651,7 +651,7 @@ function randomMatch(mode) {
   audio();
   matching = true; matchTries = 0;
   const name = ($('nameIn').value.trim() || 'プレイヤー').slice(0,10);
-  trySlot(mode, 0, name);
+  probeSlot(mode, 0, null, name);
 }
 function attachPeerRecovery(p) {
   p.on('disconnected', () => { try { p.reconnect(); } catch (e) {} });
@@ -660,63 +660,59 @@ function matchFail(msg) {
   matching = false;
   status(msg || 'マッチングできませんでした。もういちど押してみてね');
 }
-// 枠iの主張を試みる: 取れたら自分がホスト(待つ側)。先客がいたら参加する
-function trySlot(mode, i, name) {
-  if (!matching) return;
-  if (i >= PUB_ROOMS || ++matchTries > 25) { matchFail('こんでいるみたい。少しまってもう一度おしてね'); return; }
-  const code = pubCode(mode, i);
-  status(`マッチング中… (部屋${i + 1}をかくにん)`);
+// ---- join優先ラダー ----
+// 0番から順に「待っている人がいるか」を確認しながら進む。
+//   先客あり(接続が開く) → 参加。満員なら次へ
+//   空き枠(peer-unavailable) → 番号を覚えて次へ
+//   最後まで誰もいなければ → 最初に見つけた空き枠を主張してホストになる
+// 空き枠の確認はシグナリングのみなので高速・確実。枠の主張はアトミックなので分裂しない。
+let probeAdvance = null; // 現在確認中の枠を「空きだった」として先へ進める関数
+function ensureAnonPeer(name, cb) {
+  if (peer && peer._anonReady && !peer.destroyed) { cb(); return; }
   try { if (peer) peer.destroy(); } catch (e) {}
   conns.clear();
-  let settled = false;
-  peer = new Peer(PREFIX + code, PEER_OPTS);
-  const guard = setTimeout(() => { if (!settled && matching) { settled = true; trySlot(mode, i, name); } }, 8000);
-  peer.on('open', id => {
-    if (settled || !matching) return;
-    settled = true; clearTimeout(guard);
-    // 枠が取れた = 待っている人はいない → 自分がホストになって待つ
-    me = makeMe(id, name);
-    isHost = true;
-    roomCode = code;
-    startGame();
+  peer = new Peer(PEER_OPTS);
+  peer.on('open', myId => {
+    peer._anonReady = true;
+    me = makeMe(myId, name);
+    cb();
   });
-  peer.on('connection', setupHostConn);
   peer.on('error', e => {
-    if (e.type === 'unavailable-id') { // 先客がいる → その部屋に参加
-      if (settled || !matching) return;
-      settled = true; clearTimeout(guard);
-      joinSlot(mode, i, name);
-      return;
-    }
+    if (e.type === 'peer-unavailable') { if (probeAdvance) probeAdvance(); return; } // 空き枠
     if (migrating && e.type === 'peer-unavailable') { setTimeout(rejoinNewHost, 1500); return; }
     if (e.type === 'network' || e.type === 'disconnected' || e.type === 'socket-error' || e.type === 'webrtc') {
-      try { peer.reconnect(); } catch (err) {} // 一時的な乱れは黙って再接続
+      try { peer.reconnect(); } catch (err) {}
       return;
     }
-    if (matching) { clearTimeout(guard); matchFail(); }
+    if (matching) matchFail();
   });
   attachPeerRecovery(peer);
 }
-// 先客のいる枠iに参加する(1回だけ同じ部屋にリトライしてから次へ)
-function joinSlot(mode, i, name, retried) {
+function probeSlot(mode, i, firstFree, name) {
   if (!matching) return;
+  if (++matchTries > 60) { matchFail('こんでいるみたい。少しまってもう一度おしてね'); return; }
+  if (i >= PUB_ROOMS) { // 待っている人はいなかった → 最初の空き枠でホストになる
+    claimSlot(mode, firstFree === null ? 0 : firstFree, name);
+    return;
+  }
   const code = pubCode(mode, i);
-  status(retried ? 'もういちど せつぞく中…' : 'あいてが見つかりました! せつぞく中…');
-  try { peer.destroy(); } catch (e) {}
-  let settled = false;
-  peer = new Peer(PEER_OPTS);
-  const guard = setTimeout(() => {
-    if (settled || !matching) return;
-    settled = true;
-    if (!retried) joinSlot(mode, i, name, true); // 接続確立に失敗 → 同じ部屋にもう一度だけ挑戦
-    else trySlot(mode, i + 1, name);
-  }, 9000);
-  peer.on('open', myId => {
+  status(`部屋をさがしています… (${i + 1}/${PUB_ROOMS})`);
+  ensureAnonPeer(name, () => {
     if (!matching) return;
-    me = makeMe(myId, name);
+    let settled = false;
     const c = peer.connect(PREFIX + code, {reliable:true});
+    const guard = setTimeout(() => { // 相手がいるのに接続が確立しない(NAT等) → 飛ばす
+      if (!settled && matching) { settled = true; probeAdvance = null; try { c.close(); } catch (e) {} probeSlot(mode, i + 1, firstFree, name); }
+    }, 7000);
+    probeAdvance = () => { // この枠は空きだった
+      if (!settled && matching) {
+        settled = true; clearTimeout(guard); probeAdvance = null;
+        probeSlot(mode, i + 1, firstFree === null ? i : firstFree, name);
+      }
+    };
     c.on('open', () => {
       if (settled || !matching) { try { c.close(); } catch (e) {} return; }
+      status('あいてが見つかりました! せつぞく中…');
       roomCode = code;
       hostConn = c;
       c.on('close', onHostLost);
@@ -725,20 +721,40 @@ function joinSlot(mode, i, name, retried) {
     });
     c.on('data', msg => {
       if (msg.t === 'full') { // 満員 → つぎの枠へ
-        settled = true; clearTimeout(guard);
+        settled = true; clearTimeout(guard); probeAdvance = null;
         try { c.close(); } catch (e) {}
         hostConn = null;
-        trySlot(mode, i + 1, name);
+        probeSlot(mode, i + 1, firstFree, name);
       } else {
-        if (!settled) { settled = true; clearTimeout(guard); }
+        if (!settled) { settled = true; clearTimeout(guard); probeAdvance = null; }
         handle(msg); // welcome → startGame
       }
     });
   });
+}
+function claimSlot(mode, idx, name) {
+  if (!matching) return;
+  status('公開部屋を作ってまっています…');
+  try { if (peer) peer.destroy(); } catch (e) {}
+  conns.clear();
+  let settled = false;
+  const code = pubCode(mode, idx);
+  peer = new Peer(PREFIX + code, PEER_OPTS);
+  const guard = setTimeout(() => { if (!settled && matching) { settled = true; claimSlot(mode, idx, name); } }, 8000);
+  peer.on('open', id => {
+    if (settled || !matching) return;
+    settled = true; clearTimeout(guard);
+    me = makeMe(id, name);
+    isHost = true;
+    roomCode = code;
+    startGame();
+  });
+  peer.on('connection', setupHostConn);
   peer.on('error', e => {
-    if (migrating && e.type === 'peer-unavailable') { setTimeout(rejoinNewHost, 1500); return; }
-    if (e.type === 'peer-unavailable') { // ホストが直前に消えた → 枠を取り直す
-      if (!settled && matching) { settled = true; clearTimeout(guard); trySlot(mode, i, name); }
+    if (e.type === 'unavailable-id') { // 直前にだれかが取った → その枠から探し直して合流
+      if (settled || !matching) return;
+      settled = true; clearTimeout(guard);
+      probeSlot(mode, idx, null, name);
       return;
     }
     if (e.type === 'network' || e.type === 'disconnected' || e.type === 'socket-error' || e.type === 'webrtc') {
