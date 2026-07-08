@@ -649,13 +649,18 @@ function randomMatch(mode) {
   peer.on('error', e => {
     if (matching && e.type === 'peer-unavailable') return; // 空き枠。波のタイマーが前進を管理
     if (migrating && e.type === 'peer-unavailable') { setTimeout(rejoinNewHost, 1500); return; }
-    if (matching) { // 致命的エラーで固まらないように
+    if (e.type === 'network' || e.type === 'webrtc' || e.type === 'disconnected' || e.type === 'socket-error') {
+      try { peer.reconnect(); } catch (err) {} // 一時的な乱れは黙って再接続
+      return;
+    }
+    if (matching) { // 本当に致命的なエラーだけ中断
       matching = false;
       status('つうしんエラーが起きました。もういちど押してみてね');
       return;
     }
     status('エラー: ' + e.type);
   });
+  peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) {} });
 }
 function adoptRoom(c, code) {
   if (!matching) { try { c.close(); } catch (e) {} return; }
@@ -679,23 +684,27 @@ function probeWave(mode, start) {
   status(`部屋をさがしています… (${end}/${PUB_ROOMS})`);
   for (let i = start; i < end; i++) {
     const code = pubCode(mode, i);
-    const c = peer.connect(PREFIX + code, {reliable:true});
-    c.on('open', () => adoptRoom(c, code));
-    c.on('data', msg => {
-      if (msg.t === 'full') { // 満員だった → 採用を取り消して補欠から昇格
-        try { c.close(); } catch (e) {}
-        if (matchConn === c) {
-          matchConn = null; hostConn = null;
-          const nb = standbyRooms.shift();
-          if (nb) adoptRoom(nb.c, nb.code);
+    // 一斉に張るとシグナリングサーバーが詰まるので、120msずつずらす
+    setTimeout(() => {
+      if (!matching || matchConn) return;
+      const c = peer.connect(PREFIX + code, {reliable:true});
+      c.on('open', () => adoptRoom(c, code));
+      c.on('data', msg => {
+        if (msg.t === 'full') { // 満員だった → 採用を取り消して補欠から昇格
+          try { c.close(); } catch (e) {}
+          if (matchConn === c) {
+            matchConn = null; hostConn = null;
+            const nb = standbyRooms.shift();
+            if (nb) adoptRoom(nb.c, nb.code);
+          }
+        } else if (matchConn === c) {
+          handle(msg);
         }
-      } else if (matchConn === c) {
-        handle(msg);
-      }
-    });
+      });
+    }, (i - start) * 120);
   }
   // この波で入れなければ次の10部屋へ
-  setTimeout(() => { if (matching && !matchConn) probeWave(mode, end); }, 1600);
+  setTimeout(() => { if (matching && !matchConn) probeWave(mode, end); }, 2000);
 }
 function hostPublic(mode, tries = 0) {
   if (!matching) return;
@@ -734,14 +743,17 @@ function startHostMerge(mode, myIdx) {
     if (!playing || !isHost || humanCount() > 0 || merging) { if (humanCount() > 0) stopHostMerge(); return; }
     for (let i = 0; i < myIdx; i++) {
       const code = pubCode(mode, i);
-      const c = peer.connect(PREFIX + code, {reliable:true});
-      c.on('open', () => {
-        if (!playing || !isHost || humanCount() > 0 || merging) { try { c.close(); } catch (e) {} return; }
-        merging = true;
-        stopHostMerge();
-        try { c.close(); } catch (e) {}
-        mergeInto(code);
-      });
+      setTimeout(() => {
+        if (!playing || !isHost || humanCount() > 0 || merging) return;
+        const c = peer.connect(PREFIX + code, {reliable:true});
+        c.on('open', () => {
+          if (!playing || !isHost || humanCount() > 0 || merging) { try { c.close(); } catch (e) {} return; }
+          merging = true;
+          stopHostMerge();
+          try { c.close(); } catch (e) {}
+          mergeInto(code);
+        });
+      }, i * 150);
     }
   }, 7000);
 }
