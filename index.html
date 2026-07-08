@@ -259,6 +259,17 @@ const INV_MS = 3000;    // 参加直後の無敵時間 ms(投げたら即終了)
 const SENDRATE = 50;    // 状態送信間隔 ms
 const PREFIX = 'yukigassen-io-v5-'; // 通信仕様を変えたらここを上げる(旧バージョンと同室になるのを防ぐ)
 const PUB_ROOMS = 20;   // 公開マッチの部屋枠数(モードごとにG000〜G019 / C000〜C019)
+// STUNだけだとNAT越えできないペア(モバイル回線×Wi-Fiなど)が出るので、無料TURN中継も入れる
+const PEER_OPTS = {
+  debug: 1,
+  config: { iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'turn:openrelay.metered.ca:80',  username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+  ] }
+};
 const MAX_GUESTS = 5;   // カジュアル部屋の最大ゲスト数(ホスト含め6人)。ガチ(G0xx)は1対1
 const WIN_SCORE = 3;    // 先取ポイント(ラウンド制)
 const INK = '#3d405b';
@@ -505,7 +516,7 @@ function createRoom() {
   const name = ($('nameIn').value.trim() || 'プレイヤー').slice(0,10);
   roomCode = genCode();
   status('部屋を作成中…');
-  peer = new Peer(PREFIX + roomCode, {debug:1});
+  peer = new Peer(PREFIX + roomCode, PEER_OPTS);
   peer.on('open', id => {
     isHost = true;
     me = makeMe(id, name);
@@ -577,7 +588,7 @@ function onHostLost() {
 function becomeHost() {
   try { peer.destroy(); } catch (e) {}
   conns.clear();
-  peer = new Peer(PREFIX + roomCode, {debug:1});
+  peer = new Peer(PREFIX + roomCode, PEER_OPTS);
   peer.on('open', id => {
     isHost = true; hostConn = null; migrating = false;
     me.id = id; // 自分のIDが部屋IDに変わる
@@ -610,7 +621,7 @@ function joinRoom() {
   if (code.length !== 4) { status('4文字の部屋コードを入力してね'); return; }
   roomCode = code;
   status('接続中…');
-  peer = new Peer({debug:1});
+  peer = new Peer(PEER_OPTS);
   peer.on('open', myId => {
     me = makeMe(myId, name);
     hostConn = peer.connect(PREFIX + code, {reliable:true});
@@ -658,7 +669,7 @@ function trySlot(mode, i, name) {
   try { if (peer) peer.destroy(); } catch (e) {}
   conns.clear();
   let settled = false;
-  peer = new Peer(PREFIX + code, {debug:1});
+  peer = new Peer(PREFIX + code, PEER_OPTS);
   const guard = setTimeout(() => { if (!settled && matching) { settled = true; trySlot(mode, i, name); } }, 8000);
   peer.on('open', id => {
     if (settled || !matching) return;
@@ -686,15 +697,20 @@ function trySlot(mode, i, name) {
   });
   attachPeerRecovery(peer);
 }
-// 先客のいる枠iに参加する
-function joinSlot(mode, i, name) {
+// 先客のいる枠iに参加する(1回だけ同じ部屋にリトライしてから次へ)
+function joinSlot(mode, i, name, retried) {
   if (!matching) return;
   const code = pubCode(mode, i);
-  status('あいてが見つかりました! せつぞく中…');
+  status(retried ? 'もういちど せつぞく中…' : 'あいてが見つかりました! せつぞく中…');
   try { peer.destroy(); } catch (e) {}
   let settled = false;
-  peer = new Peer({debug:1});
-  const guard = setTimeout(() => { if (!settled && matching) { settled = true; trySlot(mode, i + 1, name); } }, 9000);
+  peer = new Peer(PEER_OPTS);
+  const guard = setTimeout(() => {
+    if (settled || !matching) return;
+    settled = true;
+    if (!retried) joinSlot(mode, i, name, true); // 接続確立に失敗 → 同じ部屋にもう一度だけ挑戦
+    else trySlot(mode, i + 1, name);
+  }, 9000);
   peer.on('open', myId => {
     if (!matching) return;
     me = makeMe(myId, name);
