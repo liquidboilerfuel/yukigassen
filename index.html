@@ -529,8 +529,14 @@ function setupHostConn(conn) {
         setTimeout(() => { try { conn.close(); } catch (e) {} }, 150);
         return;
       }
-      // CPU戦 → 対人戦になる瞬間だけスコアをリセット
-      if (cpuActive) { deactivateCpu(); me.score = 0; }
+      // CPU戦 → 対人戦になる瞬間: スコア・位置・大きさをリセットして無敵つきで仕切り直し
+      if (cpuActive) {
+        deactivateCpu();
+        me.score = 0;
+        const sp = randomSpawn();
+        me.x = sp.x; me.y = sp.y; me.r = PR; me.dr = 2;
+        me.invUntil = performance.now() + INV_MS;
+      }
       conn.playerId = msg.id;
       conns.set(msg.id, conn);
       handle(msg);
