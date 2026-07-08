@@ -224,11 +224,10 @@
         <button class="btn" id="joinBtn">参加</button>
       </div>
       <div id="status"></div>
-      <div class="hint">サーバー不要のP2P通信で対戦(2〜6人推奨)</div>
     </div>
   </div>
 </div>
-<div id="controls">PC 移動: WASD / 雪玉: クリック ・ スマホ 移動: 画面左ドラッグ / 雪玉: タップ</div>
+<div id="controls">PC 移動: WASD / 雪玉: クリック ・ スマホ 移動: ドラッグ / 雪玉: ドラッグ中にタップ</div>
 
 <section id="about" class="sketchy">
   <h2>ゆきがっせん.io とは?</h2>
@@ -820,6 +819,7 @@ function tPos(t) {
   const r = cv.getBoundingClientRect();
   return { x:(t.clientX - r.left) * (W / r.width), y:(t.clientY - r.top) * (H / r.height) };
 }
+/*
 cv.addEventListener('touchstart', e => {
   e.preventDefault();
   if (!playing) return;
@@ -828,6 +828,24 @@ cv.addEventListener('touchstart', e => {
     if (p.x < W * 0.45 && joyId === null) {
       joyId = t.identifier; joyBase = p; joyVec = {x:0, y:0};
     } else {
+      mouseX = p.x; mouseY = p.y;
+      me.a = Math.atan2(p.y - me.y, p.x - me.x);
+      throwBall();
+    }
+  }
+}, {passive:false});
+*/
+// 変更後
+cv.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (!playing) return;
+  for (const t of e.changedTouches) {
+    const p = tPos(t);
+    // 最初のタッチであれば、画面のどこであっても移動スティックの起点（ベース）にする
+    if (joyId === null) {
+      joyId = t.identifier; joyBase = p; joyVec = {x:0, y:0};
+    } else {
+      // スティック操作中（2個目以降のタッチ）は、すべて雪玉を投げる操作にする
       mouseX = p.x; mouseY = p.y;
       me.a = Math.atan2(p.y - me.y, p.x - me.x);
       throwBall();
@@ -1642,29 +1660,34 @@ function drawRock(o, i) {
     ctx.save();
     ctx.translate(o.x + o.w/2, o.y + o.h/2);
     ctx.scale(o.w / o.h, 1);
-    wobblyCirclePath(0, 0, o.h/2, seedOf('rk'+i)+s, 0.13);
+    // ガタつきのブレ幅を 0.13 から 0.05 に抑えて滑らかな岩に
+    wobblyCirclePath(0, 0, o.h/2, seedOf('rk'+i)+s, 0.05);
     ctx.restore();
   };
   ctx.fillStyle = '#cfc9bb';
   rockPath(0); ctx.fill();
   sketchStroke(rockPath, INK, 2.4);
+  
   // ひび割れ
   const cx = o.x + o.w/2, cy = o.y + o.h/2;
   ctx.globalAlpha = 0.45;
-  sketchStroke(s => wobblyLine(cx - o.w*0.22, cy + o.h*0.05, cx + o.w*0.05, cy + o.h*0.3, seedOf('rc'+i)+s, 1.2), INK, 1.4);
-  sketchStroke(s => wobblyLine(cx + o.w*0.1, cy - o.h*0.25, cx + o.w*0.28, cy + o.h*0.05, seedOf('rc2'+i)+s, 1.2), INK, 1.4);
+  // 線のブレ幅（最後の引数）を 1.2 から 0.4 にしてシャープなひびに変更
+  sketchStroke(s => wobblyLine(cx - o.w*0.22, cy + o.h*0.05, cx + o.w*0.05, cy + o.h*0.3, seedOf('rc'+i)+s, 0.4), INK, 1.2);
+  sketchStroke(s => wobblyLine(cx + o.w*0.1, cy - o.h*0.25, cx + o.w*0.28, cy + o.h*0.05, seedOf('rc2'+i)+s, 0.4), INK, 1.2);
   ctx.globalAlpha = 1;
+  
   // 上に積もった雪
   ctx.fillStyle = '#ffffff';
   const snowPath = s => {
     ctx.save();
-    ctx.translate(cx, o.y + o.h*0.18);
-    ctx.scale(o.w / o.h * 0.8, 0.5);
-    wobblyCirclePath(0, 0, o.h*0.26, seedOf('rs'+i)+s, 0.18);
+    ctx.translate(cx, o.y + o.h*0.15); // 積もり方を少し上（0.18 から 0.15）に調整
+    ctx.scale(o.w / o.h * 0.85, 0.4); // 横幅を広げ、縦を潰して岩のトップに沿わせる
+    // 雪のガタつきを 0.18 から 0.06 に抑えてこんもり感を出す
+    wobblyCirclePath(0, 0, o.h*0.24, seedOf('rs'+i)+s, 0.18);
     ctx.restore();
   };
   snowPath(0); ctx.fill();
-  sketchStroke(snowPath, INK, 1.5);
+  sketchStroke(snowPath, INK, 1.4);
 }
 
 // もみの木のらくがき
